@@ -1,0 +1,6 @@
+models_checkpoints
+__pycache__
+data
+results*
+*.wav
+wav
