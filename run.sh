@@ -80,7 +80,22 @@ if [ $STAGE -le 2 ]; then
 
     [ -d $SCORING_MODEL_DIR ] && rm -r $SCORING_MODEL_DIR && echo "Removed existing $SCORING_MODEL_DIR directory.";
 
-    CUDA_VISIBLE_DEVICES=1 python3 train.py $SCORING_HPARAM_FILE \
+    # OMP_NUM_THREADS=1 python3 -m torch.distributed.launch --nproc_per_node=2 train.py $SCORING_HPARAM_FILE \
+    #     --distributed_launch \
+    #     --distributed_backend='nccl' \
+    #     --data_folder=$PREP_DATA_FOLDER \
+    #     --batch_size=4 \
+    #     --pretrained_model_folder=$PRETRAINED_MODEL_DIR \
+    #     --use_augmentation=True \
+    #     --round_scores=False \
+    #     --exp_folder=$SCORING_MODEL_DIR \
+    #     --exp_metadata_file=$EXP_METADATA_FILE \
+    #     --results_file=$PREP_SCORING_RESULTS_FILE\
+    #     --epoch_results_dir=$EPOCH_RESULTS_DIR \
+    #     --params_dir=$PARAMS_DIR \
+    #     --exp_description="Step 1 then 3 directly (aug, no round)" \
+    #     --find_unused_parameters 
+    python3 train.py $SCORING_HPARAM_FILE \
         --data_folder=$PREP_DATA_FOLDER \
         --batch_size=4 \
         --pretrained_model_folder=$PRETRAINED_MODEL_DIR \
@@ -91,5 +106,6 @@ if [ $STAGE -le 2 ]; then
         --results_file=$PREP_SCORING_RESULTS_FILE\
         --epoch_results_dir=$EPOCH_RESULTS_DIR \
         --params_dir=$PARAMS_DIR \
-        --exp_description="Step 1 then 3 directly (aug, no round)";
+        --exp_description="Step 1 then 3 directly (aug, no round)" \
+
 fi

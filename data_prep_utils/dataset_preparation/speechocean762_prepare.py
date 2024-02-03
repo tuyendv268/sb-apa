@@ -329,27 +329,37 @@ def dataio_prep_speechocean762(hparams, label_encoder=None):
 
     sb.dataio.dataset.add_dynamic_item(datasets, text_pipeline)
 
-    @sb.utils.data_pipeline.takes("phn_canonical")
+    @sb.utils.data_pipeline.takes(
+        "phn_canonical", "wrd_id"
+        )
     @sb.utils.data_pipeline.provides(
         "phn_canonical_list",
         "phn_canonical_encoded",
         "phn_canonical_encoded_eos",
         "phn_canonical_encoded_bos",
+        "wrd_id_list",
     )
-    def text_canonical_pipeline(phn_canonical):
+    def text_canonical_pipeline(phn_canonical, wrd_id):
         phn_list = phn_canonical.strip().split()
         yield phn_list
+
         phn_encoded_list = label_encoder.encode_sequence(phn_list)
         phn_encoded = torch.LongTensor(phn_encoded_list)
         yield phn_encoded
+
         phn_encoded_eos = torch.LongTensor(
             label_encoder.append_eos_index(phn_encoded_list)
         )
         yield phn_encoded_eos
+
         phn_encoded_bos = torch.LongTensor(
             label_encoder.prepend_bos_index(phn_encoded_list)
         )
         yield phn_encoded_bos
+
+        wrd_id_list = [int(ele) for ele in wrd_id.strip().split()]
+        wrd_encoded_list = torch.LongTensor(wrd_id_list)
+        yield wrd_encoded_list
 
     sb.dataio.dataset.add_dynamic_item(datasets, text_canonical_pipeline)
 
@@ -377,18 +387,25 @@ def dataio_prep_speechocean762(hparams, label_encoder=None):
 
     # 4. Define phone scores pipeline:
     @sb.utils.data_pipeline.takes(
-        "scores",
+        "phn_score", "wrd_score", "utt_score",
     )
     @sb.utils.data_pipeline.provides(
-        "scores_list",
+        "phn_score_list", "wrd_score_list", "utt_score_list",
     )
     def scores_pipeline(
-            scores
+            phn_score, wrd_score, utt_score,
     ):
         # The returned sequence has the same length as phn_canonical_encoded (i.e.: one-less element than
         # phn_canonical_encoded_bos and phn_canonical_encoded_eos.
-        yield create_score_tensor_from_string(scores, MetadataConstants.MIN_PHONE_ACCURACY_SCORE.value,
+        yield create_score_tensor_from_string(phn_score, MetadataConstants.MIN_PHONE_ACCURACY_SCORE.value,
                                               MetadataConstants.MAX_PHONE_ACCURACY_SCORE.value)
+
+        yield create_score_tensor_from_string(wrd_score, MetadataConstants.MIN_PHONE_ACCURACY_SCORE.value,
+                                              MetadataConstants.MAX_PHONE_ACCURACY_SCORE.value)
+
+        yield create_score_tensor_from_string(utt_score, MetadataConstants.MIN_PHONE_ACCURACY_SCORE.value,
+                                              MetadataConstants.MAX_PHONE_ACCURACY_SCORE.value)
+
     sb.dataio.dataset.add_dynamic_item(datasets, scores_pipeline)
 
     # 6. Define alignments pipeline:
@@ -415,7 +432,10 @@ def dataio_prep_speechocean762(hparams, label_encoder=None):
                    "phn_canonical_encoded",
                    "phn_canonical_encoded_bos",
                    "phn_canonical_encoded_eos",
-                   "scores_list",
+                   "wrd_id_list",
+                   "phn_score_list", 
+                   "wrd_score_list", 
+                   "utt_score_list",
                    ]
 
     if "model_task" in hparams and hparams["model_task"] == "apr":

@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 MAX_SCORE = 2.0
 
 
+import time
+import torch
+import logging
+from tqdm.contrib import tqdm
+from speechbrain.utils.distributed import run_on_main
+from speechbrain.core import Stage
+
 class ScorerWav2vec2(sb.Brain):
     def __init__(  # noqa: C901
             self,
@@ -27,6 +34,7 @@ class ScorerWav2vec2(sb.Brain):
         """Given an input batch it computes the phoneme probabilities."""
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
+        rel_pos, rel_lens = batch.wrd_id_list
         phns_canonical_bos, _ = batch.phn_canonical_encoded_bos
         phns_canonical_eos, _ = batch.phn_canonical_encoded_eos
 
@@ -45,7 +53,11 @@ class ScorerWav2vec2(sb.Brain):
         emb_actual = self.modules.emb_scorer(phns_canonical_eos)
         emb_actual = self.modules.scorer_nn(emb_actual)
 
-        # Computing similarity
+        utt_acc_score, phone_acc_score, word_acc_score = self.modules.prep_scorer(
+            h_scoring[:, :-1].detach().clone(), phns_canonical_eos[:, :-1], rel_pos
+        )
+
+        # # Computing similarity
         if self.hparams.similarity_calc == "cosine":
             # Cosine similarity
             scores_pred = torch.nn.functional.cosine_similarity(
@@ -58,7 +70,11 @@ class ScorerWav2vec2(sb.Brain):
             scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
                 .view(self.hparams.batch_size, emb_actual.shape[1])
 
-        return scores_pred, wav_lens
+        phone_acc_score = phone_acc_score.squeeze(2)
+        word_acc_score = word_acc_score.squeeze(2)
+        # utt_acc_score = utt_acc_score.squeeze(2)
+
+        return utt_acc_score, scores_pred, word_acc_score
     
     def infer(self, wavs, wav_lens, phns_canonical_bos, phns_canonical_eos):
         feats = self.hparams.wav2vec2(wavs)
@@ -101,42 +117,58 @@ class ScorerWav2vec2(sb.Brain):
         return seqs
 
     def compute_objectives(self, predictions, batch, stage):
-        """Given the network predictions and targets computed the NLL loss."""
-        scores_pred, _ = predictions
+        pred_utt_acc_score, pred_phn_acc_score, pred_wrd_acc_score = predictions
         ids = batch.id
         phn, phn_lens = batch.phn_canonical_encoded
-        scores_actual, _ = batch.scores_list
+
+        label_phn_acc_score, _ = batch.phn_score_list
+        label_wrd_acc_score, _ = batch.wrd_score_list
+        label_utt_acc_score, _ = batch.utt_score_list
 
         if hasattr(self.modules, "env_corrupt") and stage == sb.Stage.TRAIN:
             phn_lens = torch.cat([phn_lens, phn_lens], dim=0)
 
-        scores_actual = scores_actual.unsqueeze(2)
-        scores_pred = scores_pred[:, :-1].unsqueeze(2)
+        label_phn_acc_score = label_phn_acc_score.unsqueeze(2)
+        pred_phn_acc_score = pred_phn_acc_score[:, :-1].unsqueeze(2)
 
-        loss = self.hparams.score_cost(scores_actual, scores_pred, phn_lens)
+        phn_loss = self.hparams.score_cost(label_phn_acc_score, pred_phn_acc_score, phn_lens)
+        wrd_loss = self.hparams.score_cost(label_wrd_acc_score, pred_wrd_acc_score, phn_lens)
+        utt_loss = self.hparams.score_cost(label_utt_acc_score, pred_utt_acc_score)
+
+        loss = phn_loss + wrd_loss + utt_loss
+        
+        train_log = {
+            "phn_loss": phn_loss.cpu().item(),
+            "wrd_loss": wrd_loss.cpu().item(),
+            "utt_loss": utt_loss.cpu().item(),
+        }
 
         # Rescale and round scores for final evaluation.
-        scores_pred = self.rescale_scores(scores_pred)
-        scores_actual = self.rescale_scores(scores_actual)
+        pred_phn_acc_score = self.rescale_scores(pred_phn_acc_score)
+        label_phn_acc_score = self.rescale_scores(label_phn_acc_score)
 
         # Record losses for posterity
         if stage != sb.Stage.TRAIN:
-            self.distance_scoring_metrics.append(ids, scores_pred, scores_actual, phn, phn_lens,
+            self.distance_scoring_metrics.append(ids, pred_phn_acc_score, label_phn_acc_score, phn, phn_lens,
                                                  self.label_encoder.decode_ndim)
 
         # Save predictions to compute MSE and PCC in the end of the stage.
-        real_length_prediction_seq = self.get_real_length_sequences(scores_pred, phn_lens)
-        real_length_scores = self.get_real_length_sequences(scores_actual, phn_lens)
+        real_length_phn_prediction_seq = self.get_real_length_sequences(pred_phn_acc_score, phn_lens)
+        real_length_phn_scores = self.get_real_length_sequences(label_phn_acc_score, phn_lens)
+        
+        real_length_phn_prediction_seq = torch.concat(real_length_phn_prediction_seq, 0)
+        real_length_phn_scores = torch.concat(real_length_phn_scores, 0)
+        
+        self.stage_utt_preds.append(pred_utt_acc_score.detach().cpu())
+        self.stage_utt_scores.append(label_utt_acc_score.detach().cpu())
+        
+        self.stage_phn_preds.append(real_length_phn_prediction_seq.detach().cpu())
+        self.stage_phn_scores.append(real_length_phn_scores.detach().cpu())
+        
+        self.stage_phn_preds_rounded.append(self.round_scores(real_length_phn_prediction_seq).detach().cpu())
+        self.stage_phn_scores_rounded.append(self.round_scores(real_length_phn_scores).detach().cpu())
 
-        real_length_prediction_seq = torch.concat(real_length_prediction_seq, 0)
-        real_length_scores = torch.concat(real_length_scores, 0)
-
-        self.stage_preds.append(real_length_prediction_seq.detach().cpu())
-        self.stage_scores.append(real_length_scores.detach().cpu())
-        self.stage_preds_rounded.append(self.round_scores(real_length_prediction_seq).detach().cpu())
-        self.stage_scores_rounded.append(self.round_scores(real_length_scores).detach().cpu())
-
-        return loss
+        return loss, train_log
 
     def fit_batch(self, batch):
         """Fit one batch, override to do multiple updates.
@@ -166,9 +198,9 @@ class ScorerWav2vec2(sb.Brain):
             self.asr_optimizer.zero_grad()
             self.scorer_optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.cuda.amp.autocast(dtype=torch.float16):
                 outputs = self.compute_forward(batch, sb.Stage.TRAIN)
-                loss = self.compute_objectives(outputs, batch, sb.Stage.TRAIN)
+                loss, train_log = self.compute_objectives(outputs, batch, sb.Stage.TRAIN)
 
             self.scaler.scale(loss).backward()
             if self.optimizer_step > self.hparams.warmup_steps_wav2vec:
@@ -188,7 +220,7 @@ class ScorerWav2vec2(sb.Brain):
         else:
             outputs = self.compute_forward(batch, sb.Stage.TRAIN)
 
-            loss = self.compute_objectives(outputs, batch, sb.Stage.TRAIN)
+            loss, train_log = self.compute_objectives(outputs, batch, sb.Stage.TRAIN)
             loss.backward()
 
             if self.check_gradients(loss):
@@ -203,32 +235,146 @@ class ScorerWav2vec2(sb.Brain):
             self.scorer_optimizer.zero_grad()
 
         self.optimizer_step += 1
-        return loss.detach().cpu()
+        return loss.detach().cpu(), train_log
 
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
         predictions = self.compute_forward(batch, stage=stage)
-        loss = self.compute_objectives(predictions, batch, stage=stage)
+        loss, train_log = self.compute_objectives(predictions, batch, stage=stage)
         return loss.detach()
 
     def on_stage_start(self, stage, epoch):
         """Gets called when a stage (either training, validation, test) starts."""
         self.score_metrics_mse = self.hparams.score_stats_mse()
-        self.stage_preds = []
-        self.stage_preds_rounded = []
-        self.stage_scores = []
-        self.stage_scores_rounded = []
+        self.stage_phn_preds = []
+        self.stage_phn_preds_rounded = []
+        self.stage_phn_scores = []
+        self.stage_phn_scores_rounded = []
+        
+        self.stage_utt_preds = []
+        self.stage_utt_scores = []
 
         if stage != sb.Stage.TRAIN:
             self.distance_scoring_metrics = self.hparams.scoring_stats_dist()
+            
+    def _fit_train(self, train_set, epoch, enable):
+        # Training stage
+        self.on_stage_start(Stage.TRAIN, epoch)
+        self.modules.train()
+        self.zero_grad()
+
+        # Reset nonfinite count to 0 each epoch
+        self.nonfinite_count = 0
+
+        if self.train_sampler is not None and hasattr(
+            self.train_sampler, "set_epoch"
+        ):
+            self.train_sampler.set_epoch(epoch)
+
+        # Time since last intra-epoch checkpoint
+        last_ckpt_time = time.time()
+        with tqdm(
+            train_set,
+            initial=self.step,
+            dynamic_ncols=True,
+            disable=not enable,
+            colour=self.tqdm_barcolor["train"],
+        ) as t:
+            for batch in t:
+                if self._optimizer_step_limit_exceeded:
+                    logger.info("Train iteration limit exceeded")
+                    break
+                self.step += 1
+                loss, train_log = self.fit_batch(batch)
+                self.avg_train_loss = self.update_average(
+                    loss, self.avg_train_loss
+                )
+                t.set_postfix(
+                    train_loss=self.avg_train_loss, 
+                    phn_loss=round(train_log["phn_loss"],4),
+                    wrd_loss=round(train_log["wrd_loss"],4), 
+                    utt_loss=round(train_log["utt_loss"],4)
+                )
+
+                # Profile only if desired (steps allow the profiler to know when all is warmed up)
+                if self.profiler is not None:
+                    if self.profiler.record_steps:
+                        self.profiler.step()
+
+                # Debug mode only runs a few batches
+                if self.debug and self.step == self.debug_batches:
+                    break
+
+                if (
+                    self.checkpointer is not None
+                    and self.ckpt_interval_minutes > 0
+                    and time.time() - last_ckpt_time
+                    >= self.ckpt_interval_minutes * 60.0
+                ):
+                    # This should not use run_on_main, because that
+                    # includes a DDP barrier. That eventually leads to a
+                    # crash when the processes'
+                    # time.time() - last_ckpt_time differ and some
+                    # processes enter this block while others don't,
+                    # missing the barrier.
+                    if sb.utils.distributed.if_main_process():
+                        self._save_intra_epoch_ckpt()
+                    last_ckpt_time = time.time()
+
+        # Run train "on_stage_end" on all processes
+        self.zero_grad(set_to_none=True)  # flush gradients
+        self.on_stage_end(Stage.TRAIN, self.avg_train_loss, epoch)
+        self.avg_train_loss = 0.0
+        self.step = 0
+
+    def _fit_valid(self, valid_set, epoch, enable):
+        # Validation stage
+        if valid_set is not None:
+            self.on_stage_start(Stage.VALID, epoch)
+            self.modules.eval()
+            avg_valid_loss = 0.0
+            with torch.no_grad():
+                for batch in tqdm(
+                    valid_set,
+                    dynamic_ncols=True,
+                    disable=not enable,
+                    colour=self.tqdm_barcolor["valid"],
+                ):
+                    self.step += 1
+                    loss = self.evaluate_batch(batch, stage=Stage.VALID)
+                    avg_valid_loss = self.update_average(loss, avg_valid_loss)
+
+                    # Profile only if desired (steps allow the profiler to know when all is warmed up)
+                    if self.profiler is not None:
+                        if self.profiler.record_steps:
+                            self.profiler.step()
+
+                    # Debug mode only runs a few batches
+                    if self.debug and self.step == self.debug_batches:
+                        break
+
+                # Only run validation "on_stage_end" on main process
+                self.step = 0
+                run_on_main(
+                    self.on_stage_end,
+                    args=[Stage.VALID, avg_valid_loss, epoch],
+                )
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch."""
-        stage_preds = torch.concat(self.stage_preds, 0)
-        stage_scores = torch.concat(self.stage_scores, 0)
-        stage_preds_rounded = torch.concat(self.stage_preds_rounded, 0)
-        stage_scores_rounded = torch.concat(self.stage_scores_rounded, 0)
-
+        stage_preds = torch.concat(self.stage_phn_preds, 0)
+        stage_scores = torch.concat(self.stage_phn_scores, 0)
+        
+        stage_preds_rounded = torch.concat(self.stage_phn_preds_rounded, 0)
+        stage_scores_rounded = torch.concat(self.stage_phn_scores_rounded, 0)
+        
+        if stage == sb.Stage.VALID:
+            stage_utt_preds = torch.concat(self.stage_utt_preds, 0).squeeze(-1)
+            stage_utt_scores = torch.concat(self.stage_utt_scores, 0).squeeze(-1)
+                        
+            stage_utt_pcc = torch.corrcoef(torch.stack([stage_utt_preds, stage_utt_scores]))[0, 1].item()
+            stage_utt_mse = torch.nn.functional.mse_loss(stage_utt_preds, stage_utt_scores).item()
+        
         stage_pcc = torch.corrcoef(torch.stack([stage_preds, stage_scores]))[0, 1].item()
         stage_mse = torch.nn.functional.mse_loss(stage_preds, stage_scores).item()
         stage_pcc_rounded = torch.corrcoef(torch.stack([stage_preds_rounded, stage_scores_rounded]))[0, 1].item()
@@ -260,6 +406,8 @@ class ScorerWav2vec2(sb.Brain):
                     "loss": stage_loss,
                     "scoring error": stage_mse,
                     "PCC": stage_pcc,
+                    "PCC (utterance)": stage_utt_pcc,
+                    "scoring error (utterance)": stage_utt_mse,
                     "scoring error (rounded)": stage_mse_rounded,
                     "PCC (rounded)": stage_pcc_rounded,
                 },
@@ -300,7 +448,6 @@ class ScorerWav2vec2(sb.Brain):
         self.result_logger.log_results(stage, results_to_log)
 
     def init_optimizers(self):
-        """Initializes the wav2vec2 optimizer and model optimizer"""
         self.wav2vec_optimizer = self.hparams.wav2vec_opt_class(
             self.modules.wav2vec2.parameters()
         )

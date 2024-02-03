@@ -1,17 +1,11 @@
 # ################################
 # Model: seq2seq scoring on speechocean762 with wav2vec2 + CTC/Attention
-# Authors:
-# * Ahmed Zahran 2022
-# Adapted from code by:
-# * Mirco Ravanelli 2020
-# * Ju-Chieh Chou 2020
-# * Abdel Heba 2020
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-pretrained_model_folder: !PLACEHOLDER  # e.g.: results/CRDNN_W2V2_SO762_AP_APR/1234/
+pretrained_model_folder: !PLACEHOLDER
 exp_folder: !PLACEHOLDER  # Experiment folder
 output_folder: !ref <exp_folder>/<seed>
 scoring_dist_file: !ref <output_folder>/scoring_dist.txt
@@ -23,10 +17,7 @@ train_log: !ref <output_folder>/train_log.txt
 wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
-data_folder: !PLACEHOLDER  # e.g. /path/to/speechocean762
-# train_annotation: !ref <output_folder>/train.json
-# valid_annotation: !ref <output_folder>/dev.json
-# test_annotation: !ref <output_folder>/test.json
+data_folder: !PLACEHOLDER 
 train_annotation: /home/tuyendv/E2E-R/data/scoring/train.json
 valid_annotation: /home/tuyendv/E2E-R/data/scoring/val.json
 test_annotation: /home/tuyendv/E2E-R/data/scoring/test.json
@@ -225,7 +216,7 @@ model: !new:torch.nn.ModuleList
     - [!ref <enc>, !ref <emb>, !ref <dec>, !ref <ctc_lin>, !ref <seq_lin>]
 
 model_scorer: !new:torch.nn.ModuleList
-    - [!ref <scorer_nn>, !ref <emb_scorer>, !ref <scorer_similarity_nn>]
+    - [!ref <scorer_nn>, !ref <emb_scorer>, !ref <scorer_similarity_nn>, !ref <prep_scorer>]
 
 wav2vec_opt_class: !name:torch.optim.Adam
     lr: !ref <lr_wav2vec>
@@ -253,8 +244,17 @@ lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
     improvement_threshold: 0.0025
     annealing_factor: 0.9
 
+prep_scorer: !new:models.prep_model.PrepModel
+    embed_dim: 48
+    num_heads: 1
+    depth: 2
+    input_dim: 256
+    max_length: 256
+    dropout: 0.1
+
 modules:
     wav2vec2: !ref <wav2vec2>
+    prep_scorer: !ref <prep_scorer>
     enc: !ref <enc>
     emb: !ref <emb>
     dec: !ref <dec>
