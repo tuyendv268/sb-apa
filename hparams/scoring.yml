@@ -14,7 +14,7 @@ wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
 data_folder: !PLACEHOLDER 
-train_annotation: data/scoring/test.json
+train_annotation: data/scoring/val.json
 valid_annotation: data/scoring/test.json
 test_annotation: data/scoring/test.json
 wav2vec2_save_path: ckpts/wav2vec2.pt

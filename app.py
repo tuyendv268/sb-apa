@@ -60,6 +60,22 @@ def prepare_input(audio_path, transcript):
     )
     metadata["phone"] = metadata["word"].apply(convert_word_to_arpa)
     metadata = metadata.explode(column="phone")
+    metadata = metadata.reset_index().drop(columns=["index"])
+    
+    metadata["rel-pos"] = 0
+    curr_word_id = -1
+    for index in metadata[:-1].index:
+        if metadata["word-id"][index] != curr_word_id:
+            rel_pos = 1
+        elif metadata["word-id"][index] != metadata["word-id"][index+1]:
+            rel_pos = 3
+        else:
+            rel_pos = 2
+            
+        curr_word_id = metadata["word-id"][index]
+        metadata["rel-pos"][index] = rel_pos
+    
+    metadata.loc[metadata.index[-1], "rel-pos"] = 3
 
     return audio_path, metadata
 
@@ -173,7 +189,7 @@ def infer(audio_path, transcript):
         transcript=transcript
     )
     
-    rel_pos = (metadata["word-id"] + 1).tolist()
+    rel_pos = metadata["rel-pos"].tolist()
     phn_canonical_list = metadata["phone"].tolist()
 
     wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos = prepare_batch(audio_path, phn_canonical_list, rel_pos)
@@ -229,8 +245,8 @@ if __name__ == "__main__":
     MODEL_TYPE = "w2v2"
     SCORING_TYPE=""
 
-    SCORING_MODEL_DIR = f"pretrained/scoring"
-    PRETRAINED_MODEL_DIR = f"pretrained/apr"
+    SCORING_MODEL_DIR = f"results/scoring"
+    PRETRAINED_MODEL_DIR = f"results/apr"
     SCORING_HPARAM_FILE = f"hparams/scoring.yml"
 
     argv = [
@@ -251,8 +267,8 @@ if __name__ == "__main__":
         hparams = load_hyperpyyaml(fin, overrides)
 
     lexicon_path = "resources/lexicon"
-    ckpt_path = "pretrained/scoring/CKPT+2024-02-04+04-51-26+00"
-    label_encoder_path = "pretrained/scoring/label_encoder.txt"
+    ckpt_path = "results/scoring/save/CKPT+2024-02-04+11-46-32+00"
+    label_encoder_path = "results/scoring/save/label_encoder.txt"
     
     hparams["ckpt_path"] = ckpt_path
     hparams["label_encoder_path"] = label_encoder_path

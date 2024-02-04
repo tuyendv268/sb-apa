@@ -50,6 +50,23 @@ class APRWav2vec2(sb.Brain):
             return p_ctc, p_seq, wav_lens, hyps
 
         return p_ctc, p_seq, wav_lens
+    
+    def infer(self, wavs, wav_lens, phns_bos):
+        feats = self.modules.wav2vec2(wavs)
+        x = self.modules.enc(feats)
+
+        # output layer for ctc log-probabilities
+        logits = self.modules.ctc_lin(x)
+        p_ctc = self.hparams.log_softmax(logits)
+
+        e_in = self.modules.emb(phns_bos)
+        h, _ = self.modules.dec(e_in, x, wav_lens)
+
+        # output layer for seq2seq log-probabilities
+        logits = self.modules.seq_lin(h)
+        p_seq = self.hparams.log_softmax(logits)
+
+        return p_ctc, p_seq, wav_lens
 
     def compute_objectives(self, predictions, batch, stage):
         """Given the network predictions and targets computed the NLL loss."""

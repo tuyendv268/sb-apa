@@ -34,6 +34,7 @@ class ScorerWav2vec2(sb.Brain):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
         rel_pos, rel_lens = batch.rel_pos_list
+        wrd_ids, wrd_id_lens = batch.wrd_id_list
         phns_canonical_bos, _ = batch.phn_canonical_encoded_bos
         phns_canonical_eos, _ = batch.phn_canonical_encoded_eos
 
@@ -71,7 +72,6 @@ class ScorerWav2vec2(sb.Brain):
 
         phone_acc_score = phone_acc_score.squeeze(2)
         word_acc_score = word_acc_score.squeeze(2)
-        # utt_acc_score = utt_acc_score.squeeze(2)
 
         return utt_acc_score, scores_pred, word_acc_score
     
@@ -109,29 +109,6 @@ class ScorerWav2vec2(sb.Brain):
 
         return utt_acc_score, scores_pred, word_acc_score
         
-        # feats = self.hparams.wav2vec2(wavs)
-        # x = self.modules.enc(feats)
-
-        # e_in_canonical = self.modules.emb(phns_canonical_bos)
-        # h_scoring, _ = self.modules.dec(e_in_canonical, x, wav_lens)
-
-        # # Computing phone representations for pronounced and canonical phones
-        # phone_rep_pred = self.modules.scorer_nn(h_scoring)
-        # emb_actual = self.modules.emb_scorer(phns_canonical_eos)
-        # emb_actual = self.modules.scorer_nn(emb_actual)
-
-        # if self.hparams.similarity_calc == "cosine":
-        #     scores_pred = torch.nn.functional.cosine_similarity(
-        #         phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
-        # elif self.hparams.similarity_calc == "euclidean":
-        #     scores_pred = 1.0 - 0.5 * (phone_rep_pred - emb_actual).var(dim=2) / \
-        #                   (phone_rep_pred.var(dim=2) + emb_actual.var(dim=2))
-        # else:
-        #     scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
-        #         .view(self.hparams.batch_size, emb_actual.shape[1])
-
-        # return scores_pred, wav_lens
-
     def rescale_scores(self, scores):
         """Rescales scores from range [0, 1] to range [0, 2]."""
         return MAX_SCORE * scores
@@ -151,6 +128,7 @@ class ScorerWav2vec2(sb.Brain):
     def compute_objectives(self, predictions, batch, stage):
         pred_utt_acc_score, pred_phn_acc_score, pred_wrd_acc_score = predictions
         ids = batch.id
+        wrd_ids, wrd_id_lens = batch.wrd_id_list
         phn, phn_lens = batch.phn_canonical_encoded
 
         label_phn_acc_score, _ = batch.phn_score_list
@@ -178,6 +156,9 @@ class ScorerWav2vec2(sb.Brain):
         # Rescale and round scores for final evaluation.
         pred_phn_acc_score = self.rescale_scores(pred_phn_acc_score)
         label_phn_acc_score = self.rescale_scores(label_phn_acc_score)
+        
+        pred_wrd_acc_score = self.rescale_scores(pred_wrd_acc_score)
+        label_wrd_acc_score = self.rescale_scores(label_wrd_acc_score)
 
         # Record losses for posterity
         if stage != sb.Stage.TRAIN:
@@ -191,6 +172,31 @@ class ScorerWav2vec2(sb.Brain):
         real_length_phn_prediction_seq = torch.concat(real_length_phn_prediction_seq, 0)
         real_length_phn_scores = torch.concat(real_length_phn_scores, 0)
         
+        real_length_wrd_prediction_seq = self.get_real_length_sequences(pred_wrd_acc_score, wrd_id_lens)
+        real_length_wrd_scores = self.get_real_length_sequences(label_wrd_acc_score, wrd_id_lens)
+        real_length_wrd_ids = self.get_real_length_sequences(wrd_ids, wrd_id_lens)
+        
+        for index in range(len(real_length_wrd_ids)):
+            _real_length_wrd_ids = real_length_wrd_ids[index] - 1
+            _real_length_wrd_scores = real_length_wrd_scores[index]
+            _real_length_wrd_prediction_seq = real_length_wrd_prediction_seq[index]
+            
+            indices = torch.nn.functional.one_hot(
+                _real_length_wrd_ids, num_classes=int(_real_length_wrd_ids.max().item())+1).cuda()
+            indices = indices / indices.sum(0, keepdim=True)
+    
+            _real_length_wrd_scores = torch.matmul(indices.transpose(0, 1), _real_length_wrd_scores)
+            _real_length_wrd_prediction_seq = torch.matmul(indices.transpose(0, 1), _real_length_wrd_prediction_seq)
+            
+            real_length_wrd_scores[index] = _real_length_wrd_scores
+            real_length_wrd_prediction_seq[index] = _real_length_wrd_prediction_seq
+                    
+        real_length_wrd_prediction_seq = torch.concat(real_length_wrd_prediction_seq, 0)
+        real_length_wrd_scores = torch.concat(real_length_wrd_scores, 0)
+        
+        self.stage_wrd_preds.append(real_length_wrd_prediction_seq.detach().cpu())
+        self.stage_wrd_scores.append(real_length_wrd_scores.detach().cpu())
+
         self.stage_utt_preds.append(pred_utt_acc_score.detach().cpu())
         self.stage_utt_scores.append(label_utt_acc_score.detach().cpu())
         
@@ -285,6 +291,9 @@ class ScorerWav2vec2(sb.Brain):
         
         self.stage_utt_preds = []
         self.stage_utt_scores = []
+        
+        self.stage_wrd_preds = []
+        self.stage_wrd_scores = []
 
         if stage != sb.Stage.TRAIN:
             self.distance_scoring_metrics = self.hparams.scoring_stats_dist()
@@ -400,12 +409,17 @@ class ScorerWav2vec2(sb.Brain):
         stage_preds_rounded = torch.concat(self.stage_phn_preds_rounded, 0)
         stage_scores_rounded = torch.concat(self.stage_phn_scores_rounded, 0)
         
-        if stage == sb.Stage.VALID:
-            stage_utt_preds = torch.concat(self.stage_utt_preds, 0).squeeze(-1)
-            stage_utt_scores = torch.concat(self.stage_utt_scores, 0).squeeze(-1)
-                        
-            stage_utt_pcc = torch.corrcoef(torch.stack([stage_utt_preds, stage_utt_scores]))[0, 1].item()
-            stage_utt_mse = torch.nn.functional.mse_loss(stage_utt_preds, stage_utt_scores).item()
+        stage_utt_preds = torch.concat(self.stage_utt_preds, 0).squeeze(-1)
+        stage_utt_scores = torch.concat(self.stage_utt_scores, 0).squeeze(-1)
+        
+        stage_wrd_preds = torch.concat(self.stage_wrd_preds, 0)
+        stage_wrd_scores = torch.concat(self.stage_wrd_scores, 0)
+        
+        stage_wrd_pcc = torch.corrcoef(torch.stack([stage_wrd_preds, stage_wrd_scores]))[0, 1].item()
+        stage_wrd_mse = torch.nn.functional.mse_loss(stage_wrd_preds, stage_wrd_scores).item()
+                
+        stage_utt_pcc = torch.corrcoef(torch.stack([stage_utt_preds, stage_utt_scores]))[0, 1].item()
+        stage_utt_mse = torch.nn.functional.mse_loss(stage_utt_preds, stage_utt_scores).item()
         
         stage_pcc = torch.corrcoef(torch.stack([stage_preds, stage_scores]))[0, 1].item()
         stage_mse = torch.nn.functional.mse_loss(stage_preds, stage_scores).item()
@@ -436,12 +450,12 @@ class ScorerWav2vec2(sb.Brain):
                 train_stats={"loss": self.train_loss},
                 valid_stats={
                     "loss": stage_loss,
-                    "scoring error": stage_mse,
-                    "PCC": stage_pcc,
+                    "MSE (phone)": stage_mse,
+                    "MSE (word)": stage_wrd_mse,
+                    "MSE (utterance)": stage_utt_mse,
+                    "PCC (phone)": stage_pcc,
+                    "PCC (word)": stage_wrd_pcc,
                     "PCC (utterance)": stage_utt_pcc,
-                    "scoring error (utterance)": stage_utt_mse,
-                    "scoring error (rounded)": stage_mse_rounded,
-                    "PCC (rounded)": stage_pcc_rounded,
                 },
             )
             if self.hparams.ckpt_enable:
@@ -463,8 +477,15 @@ class ScorerWav2vec2(sb.Brain):
         if stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
-                test_stats={"loss": stage_loss, "scoring error": stage_mse, "PCC": stage_pcc,
-                            "scoring error (rounded)": stage_mse_rounded, "PCC (rounded)": stage_pcc_rounded},
+                test_stats={
+                    "loss": stage_loss,
+                    "MSE (phone)": stage_mse,
+                    "MSE (word)": stage_wrd_mse,
+                    "MSE (utterance)": stage_utt_mse,
+                    "PCC (phone)": stage_pcc,
+                    "PCC (word)": stage_wrd_pcc,
+                    "PCC (utterance)": stage_utt_pcc,
+                    },
             )
             with open(self.hparams.scoring_dist_file, "w") as w:
                 w.write("Score loss stats:\n")
