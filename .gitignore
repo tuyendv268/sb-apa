@@ -1,6 +1,6 @@
-models_checkpoints
-__pycache__
+ckpts
 data
-results*
 *.wav
-wav
+pretrained
+results
+__pycache__

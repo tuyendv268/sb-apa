@@ -121,7 +121,7 @@ class PositionalEncoding(nn.Module):
         return self.pe[:, : x.size(1)]
     
 class PrepModel(nn.Module):
-    def __init__(self, embed_dim, num_heads, depth, input_dim=84, num_phone=45, max_length=50, dropout=0.1):
+    def __init__(self, embed_dim, num_heads, depth, input_dim=84, num_phone=46, max_length=50, dropout=0.1):
         super(PrepModel, self).__init__()
         self.input_dim = input_dim
         self.embed_dim = embed_dim
@@ -175,7 +175,6 @@ class PrepModel(nn.Module):
         batch_size, seq_length, embedd_dim = phn_embed.shape[0], phn_embed.shape[1], phn_embed.shape[2]
 
         phn_embed = self.phn_in_proj(phn_embed)
-        # phn_canon_embed = self.phn_canon_in_proj(phn_canon_embed)
         phn_canon_embed = self.phn_canon_embedding(phn_canoncial)
 
         p_x = phn_embed + phn_canon_embed + self.pos_embed(phn_embed)

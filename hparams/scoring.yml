@@ -1,13 +1,9 @@
-# ################################
-# Model: seq2seq scoring on speechocean762 with wav2vec2 + CTC/Attention
-# ################################
-
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 pretrained_model_folder: !PLACEHOLDER
 exp_folder: !PLACEHOLDER  # Experiment folder
-output_folder: !ref <exp_folder>/<seed>
+output_folder: !ref <exp_folder>
 scoring_dist_file: !ref <output_folder>/scoring_dist.txt
 save_folder: !ref <output_folder>/save
 best_model_folder: !ref <save_folder>/best
@@ -18,14 +14,12 @@ wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
 data_folder: !PLACEHOLDER 
-train_annotation: /home/tuyendv/E2E-R/data/scoring/train.json
-valid_annotation: /home/tuyendv/E2E-R/data/scoring/val.json
-test_annotation: /home/tuyendv/E2E-R/data/scoring/test.json
-wav2vec2_save_path: models_checkpoints/wav2vec2.pt
+train_annotation: data/scoring/test.json
+valid_annotation: data/scoring/test.json
+test_annotation: data/scoring/test.json
+wav2vec2_save_path: ckpts/wav2vec2.pt
 skip_prep: False # Skip data preparation
 label_encoder_path: null
-
-pretrained_path: /home/tuyendv/E2E-R/results/scoring/w2v2/crdnn_w2v2_so762_scoring_aug_no_round_no_pre_train/1234/save/CKPT+2024-01-30+08-10-42+00
 
 # Experiment metadata and result files
 exp_id: -1  # This will be replaced by the experiment ID.
@@ -41,7 +35,7 @@ training_type: "fine_tuning"
 model_type: "wav2vec2.0"
 model_task: "scoring"
 noisy_phones_utt_per_original_utt: 0
-dataset_name: "speechocean762"
+dataset_name: "scoring"
 multi_task_pretrained_model: False
 round_scores: False
 hpopt_mode: null
@@ -49,7 +43,7 @@ optimizing_hps: False
 multi_task: False
 query_assisted: False
 train_split_ratio: 1.0
-number_of_epochs: 100
+number_of_epochs: 10
 batch_size: 8 # Used if dynamic_batching is False
 lr: 0.0003
 lr_wav2vec: 0.0001
@@ -80,8 +74,8 @@ scorer_similarity_dnn_neurons: 512
 similarity_calc: "cosine"  # The type of similarity computation to use. Allowable values: "cosine", "euclidean", "nn".
 
 # Outputs
-num_phones: 45
-output_neurons: 45 # 39phs+sil+blank+eos+bos
+num_phones: 46
+output_neurons: 46 # 39phs+sil+blank+eos+bos
 bos_index: 0
 eos_index: 1
 blank_index: 2
@@ -244,13 +238,14 @@ lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
     improvement_threshold: 0.0025
     annealing_factor: 0.9
 
-prep_scorer: !new:models.prep_model.PrepModel
+prep_scorer: !new:src.models.prep_model.PrepModel
     embed_dim: 48
     num_heads: 1
     depth: 2
     input_dim: 256
     max_length: 256
     dropout: 0.1
+    num_phone: 46
 
 modules:
     wav2vec2: !ref <wav2vec2>
@@ -294,7 +289,7 @@ seq_stats: !name:speechbrain.utils.metric_stats.MetricStats
         label_smoothing: 0.1
         reduction: batch
 
-scoring_stats_dist: !name:metric_utils.distance_scoring_stats.DistanceScoringStats
+scoring_stats_dist: !name:utils.metrics.DistanceScoringStats
 
 pretrained_model: !new:speechbrain.utils.parameter_transfer.Pretrainer
     loadables:

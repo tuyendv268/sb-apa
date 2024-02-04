@@ -2,13 +2,12 @@ import logging
 import speechbrain as sb
 import torch
 
-from result_logger.result_logger import ResultLogger
+from src.logger import ResultLogger
 from speechbrain.utils import hpopt as hp
 
 logger = logging.getLogger(__name__)
 
 MAX_SCORE = 2.0
-
 
 import time
 import torch
@@ -34,7 +33,7 @@ class ScorerWav2vec2(sb.Brain):
         """Given an input batch it computes the phoneme probabilities."""
         batch = batch.to(self.device)
         wavs, wav_lens = batch.sig
-        rel_pos, rel_lens = batch.wrd_id_list
+        rel_pos, rel_lens = batch.rel_pos_list
         phns_canonical_bos, _ = batch.phn_canonical_encoded_bos
         phns_canonical_eos, _ = batch.phn_canonical_encoded_eos
 
@@ -76,7 +75,7 @@ class ScorerWav2vec2(sb.Brain):
 
         return utt_acc_score, scores_pred, word_acc_score
     
-    def infer(self, wavs, wav_lens, phns_canonical_bos, phns_canonical_eos):
+    def infer(self, wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos):
         feats = self.hparams.wav2vec2(wavs)
         x = self.modules.enc(feats)
 
@@ -88,17 +87,50 @@ class ScorerWav2vec2(sb.Brain):
         emb_actual = self.modules.emb_scorer(phns_canonical_eos)
         emb_actual = self.modules.scorer_nn(emb_actual)
 
+        utt_acc_score, phone_acc_score, word_acc_score = self.modules.prep_scorer(
+            h_scoring[:, :-1].detach().clone(), phns_canonical_eos[:, :-1], rel_pos
+        )
+
+        # # Computing similarity
         if self.hparams.similarity_calc == "cosine":
+            # Cosine similarity
             scores_pred = torch.nn.functional.cosine_similarity(
                 phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
         elif self.hparams.similarity_calc == "euclidean":
+            # Normalized Euclidean similarity (NES)
             scores_pred = 1.0 - 0.5 * (phone_rep_pred - emb_actual).var(dim=2) / \
                           (phone_rep_pred.var(dim=2) + emb_actual.var(dim=2))
         else:
             scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
                 .view(self.hparams.batch_size, emb_actual.shape[1])
 
-        return scores_pred, wav_lens
+        phone_acc_score = phone_acc_score.squeeze(2)
+        word_acc_score = word_acc_score.squeeze(2)
+
+        return utt_acc_score, scores_pred, word_acc_score
+        
+        # feats = self.hparams.wav2vec2(wavs)
+        # x = self.modules.enc(feats)
+
+        # e_in_canonical = self.modules.emb(phns_canonical_bos)
+        # h_scoring, _ = self.modules.dec(e_in_canonical, x, wav_lens)
+
+        # # Computing phone representations for pronounced and canonical phones
+        # phone_rep_pred = self.modules.scorer_nn(h_scoring)
+        # emb_actual = self.modules.emb_scorer(phns_canonical_eos)
+        # emb_actual = self.modules.scorer_nn(emb_actual)
+
+        # if self.hparams.similarity_calc == "cosine":
+        #     scores_pred = torch.nn.functional.cosine_similarity(
+        #         phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
+        # elif self.hparams.similarity_calc == "euclidean":
+        #     scores_pred = 1.0 - 0.5 * (phone_rep_pred - emb_actual).var(dim=2) / \
+        #                   (phone_rep_pred.var(dim=2) + emb_actual.var(dim=2))
+        # else:
+        #     scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
+        #         .view(self.hparams.batch_size, emb_actual.shape[1])
+
+        # return scores_pred, wav_lens
 
     def rescale_scores(self, scores):
         """Rescales scores from range [0, 1] to range [0, 2]."""

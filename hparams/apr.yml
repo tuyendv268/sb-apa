@@ -1,17 +1,8 @@
-# ################################
-# Model: seq2seq ASR on TIMIT with wav2vec2 + CTC/Attention
-# Authors:
-# * Ahmed Zahran 2022
-#
-# Adapted from code by:
-# * Titouan Parcollet 2021
-# ################################
-
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 exp_folder: !PLACEHOLDER  # Experiment folder
-output_folder: !ref <exp_folder>/<seed>
+output_folder: !ref <exp_folder>
 wer_file: !ref <output_folder>/wer.txt
 save_folder: !ref <output_folder>/save
 best_model_folder: !ref <save_folder>/best
@@ -22,15 +13,12 @@ wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
 data_folder: !PLACEHOLDER  # e.g. /path/to/speechocean762
-# train_annotation: !ref <output_folder>/train.json
-# valid_annotation: !ref <output_folder>/dev.json
-# test_annotation: !ref <output_folder>/test.json
 
-train_annotation: /home/tuyendv/E2E-R/data/apr/train-type-12/timit-train.json
-valid_annotation: /home/tuyendv/E2E-R/data/apr/train-type-12/val.json
-test_annotation: /home/tuyendv/E2E-R/data/apr/train-type-12/timit-test.json
+train_annotation: data/apr/train.json
+valid_annotation: data/apr/val.json
+test_annotation: data/apr/test.json
 
-wav2vec2_save_path: models_checkpoints/wav2vec2.pt
+wav2vec2_save_path: ckpts/wav2vec2.pt
 skip_prep: False # Skip data preparation
 
 # Experiment metadata and result files
@@ -45,10 +33,10 @@ params_dir: !PLACEHOLDER
 training_type: "training"
 model_type: "wav2vec2.0"
 model_task: "apr"
-dataset_name: "timit"
+dataset_name: "apr"
 hpopt_mode: null
 optimizing_hps: False
-number_of_epochs: 50
+number_of_epochs: 6
 batch_size: 4
 lr: 0.0003
 lr_wav2vec: 0.0001
@@ -68,7 +56,7 @@ dec_attn_dim: 256
 freeze_wav2vec: False
 
 # Outputs
-output_neurons: 45 # 40phs+blank+eos+bos
+output_neurons: 46 # 40phs+blank+eos+bos
 bos_index: 0
 eos_index: 1
 blank_index: 2

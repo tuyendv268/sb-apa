@@ -1,4 +1,4 @@
-from models.brain import get_brain_class
+from src.brain import get_brain_class
 from hyperpyyaml import load_hyperpyyaml
 import speechbrain as sb
 import torch
@@ -6,27 +6,9 @@ import json
 import sys
 import os
 
-from arpa_to_ipa import arpa_to_ipa
+from utils.arpa import arpa_to_ipa
 import pandas as pd
 import re
-
-DATA_DIR = "data"
-PREP_DATA_FOLDER = f'{DATA_DIR}/prep_data/'
-
-RESULTS_FOLDER = f'{DATA_DIR}/results/'
-EXP_METADATA_FILE = f'{RESULTS_FOLDER}/exp_metadata.csv'
-PREP_SCORING_RESULTS_FILE = f'{RESULTS_FOLDER}/results_scoring_prep.csv'
-EPOCH_RESULTS_DIR = f'{RESULTS_FOLDER}/epoch_results'
-PARAMS_DIR= f'{RESULTS_FOLDER}/params'
-
-
-MODEL_TYPE = "w2v2"
-SCORING_TYPE=""
-
-SCORING_HPARAM_FILE = f'hparams/scoring/{MODEL_TYPE}/train_{MODEL_TYPE}_so762{SCORING_TYPE}_scoring.yaml'
-SCORING_MODEL_DIR = f"results/scoring/{MODEL_TYPE}/crdnn_{MODEL_TYPE}_so762{SCORING_TYPE}_scoring_aug_no_round_no_pre_train"
-PRETRAINED_MODEL_DIR = f"results/apr/{MODEL_TYPE}/crdnn_{MODEL_TYPE}_timit_apr/1234"
-SCORING_HPARAM_FILE = f"hparams/scoring/{MODEL_TYPE}/train_{MODEL_TYPE}_so762{SCORING_TYPE}_scoring.yaml"
 
 def load_state_dict(hparams):
     wav2vec2_ckpt_path = f'{ckpt_path}/wav2vec2.ckpt'
@@ -44,7 +26,6 @@ def load_state_dict(hparams):
     return hparams
 
 def init_model(hparams):
-    ckpt_path = hparams["ckpt_path"]
     brain_class = get_brain_class(hparams)
 
     model = brain_class(
@@ -55,7 +36,10 @@ def init_model(hparams):
         )
 
     hparams = load_state_dict(hparams)
-
+    
+    for key, value in hparams["modules"].items():
+        value.eval()
+    
     return model, hparams
 
 def convert_word_to_arpa(word):
@@ -101,33 +85,40 @@ def normalize(text):
     text = text.lower().strip()
     return text
 
-def prepare_batch(audio_path, phn_canonical_list):
+def prepare_batch(audio_path, phn_canonical_list, rel_pos):
     phn_encoded_list = label_encoder.encode_sequence(phn_canonical_list)
     phn_canonical_encoded = torch.LongTensor(phn_encoded_list)
     phn_canonical_encoded_eos = torch.LongTensor(label_encoder.append_eos_index(phn_encoded_list))
     phn_canonical_encoded_bos = torch.LongTensor(label_encoder.prepend_bos_index(phn_encoded_list))
+    
 
     wavs = sb.dataio.dataio.read_audio(audio_path)
     wavs = wavs.unsqueeze(0).cuda()
     wav_lens = torch.tensor([wavs.shape[1]]).cuda()
+    rel_pos = torch.LongTensor(rel_pos).cuda()
     phns_canonical_bos = phn_canonical_encoded_bos.unsqueeze(0).cuda()
     phns_canonical_eos = phn_canonical_encoded_eos.unsqueeze(0).cuda()
 
-    return wavs, wav_lens, phns_canonical_bos, phns_canonical_eos
+    return wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos
 
-def post_process(metadata, scores_pred):
-    metadata["phone-score"] = scores_pred[0].tolist()[:-1]
+def post_process(metadata, phn_acc_score, utt_acc_score):
+    utt_acc_score = utt_acc_score.tolist()[0]
+    phn_acc_score = phn_acc_score.tolist()[:-1]
+    
+    metadata["phone-score"] = phn_acc_score
     metadata["start-time"] = 0
     metadata["end-time"] = 0
     metadata["start-index"] = 0
     metadata["end-index"] = 0
     metadata["ipa"] = metadata["phone"]
     metadata["sound_most_like"] = metadata["phone"]
+    
+    print(utt_acc_score)
 
     sentence = {
         "duration": 0,
         "text": "",
-        "score": 0,
+        "score": utt_acc_score,
         "ipa": "",
         "words": [],
     }
@@ -181,18 +172,23 @@ def infer(audio_path, transcript):
         audio_path=audio_path,
         transcript=transcript
     )
-
+    
+    rel_pos = (metadata["word-id"] + 1).tolist()
     phn_canonical_list = metadata["phone"].tolist()
 
-    wavs, wav_lens, phns_canonical_bos, phns_canonical_eos = prepare_batch(audio_path, phn_canonical_list)
+    wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos = prepare_batch(audio_path, phn_canonical_list, rel_pos)
 
     with torch.no_grad():
-        scores_pred, wav_lens = prep_model.infer(
-            wavs, wav_lens, phns_canonical_bos, phns_canonical_eos)
+        utt_acc_score, phn_acc_score, word_acc_score = prep_model.infer(
+            wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos)
 
-        scores_pred = (scores_pred * 100).cpu().round()
+        phn_acc_score = (phn_acc_score * 100).round()
+        utt_acc_score = (utt_acc_score * 100).round()
+        
+        phn_acc_score = phn_acc_score.detach().cpu()[0]
+        utt_acc_score = utt_acc_score.detach().cpu()[0]
 
-    result = post_process(metadata, scores_pred)
+    result = post_process(metadata, phn_acc_score, utt_acc_score)
 
     return result
 
@@ -220,6 +216,23 @@ def api_endpoint():
 
 
 if __name__ == "__main__":
+    DATA_DIR = "data"
+    PREP_DATA_FOLDER = f'{DATA_DIR}/apr/'
+
+    RESULTS_FOLDER = f'{DATA_DIR}/results/'
+    EXP_METADATA_FILE = f'{RESULTS_FOLDER}/exp_metadata.csv'
+    PREP_SCORING_RESULTS_FILE = f'{RESULTS_FOLDER}/results_scoring.csv'
+    EPOCH_RESULTS_DIR = f'{RESULTS_FOLDER}/epoch_results'
+    PARAMS_DIR= f'{RESULTS_FOLDER}/params'
+
+
+    MODEL_TYPE = "w2v2"
+    SCORING_TYPE=""
+
+    SCORING_MODEL_DIR = f"pretrained/scoring"
+    PRETRAINED_MODEL_DIR = f"pretrained/apr"
+    SCORING_HPARAM_FILE = f"hparams/scoring.yml"
+
     argv = [
         SCORING_HPARAM_FILE,
         "--data_folder", PREP_DATA_FOLDER,
@@ -237,9 +250,9 @@ if __name__ == "__main__":
     with open(hparams_file) as fin:
         hparams = load_hyperpyyaml(fin, overrides)
 
-    lexicon_path = "/home/tuyendv/E2E-R/resources/lexicon"
-    ckpt_path = "results/scoring/w2v2/crdnn_w2v2_so762_scoring_aug_no_round_no_pre_train/1234/save-1/CKPT+2024-01-30+08-10-42+00"
-    label_encoder_path = "results/scoring/w2v2/crdnn_w2v2_so762_scoring_aug_no_round_no_pre_train/1234/save/label_encoder.txt"
+    lexicon_path = "resources/lexicon"
+    ckpt_path = "pretrained/scoring/CKPT+2024-02-04+04-51-26+00"
+    label_encoder_path = "pretrained/scoring/label_encoder.txt"
     
     hparams["ckpt_path"] = ckpt_path
     hparams["label_encoder_path"] = label_encoder_path
@@ -249,4 +262,4 @@ if __name__ == "__main__":
     label_encoder = sb.dataio.encoder.CTCTextEncoder.from_saved(label_encoder_path)
     lexicon = load_lexicon(lexicon_path)
 
-    app.run(host='0.0.0.0', port=8888)
+    app.run(host='0.0.0.0', port=6868)

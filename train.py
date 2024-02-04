@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
-"""Generic training script
-
-To run this recipe, do the following:
-> python train.py hparams/train.yaml --data_folder /path/to/data
-
-Authors
- * Ahmed Zahran 2023
-"""
 
 import logging
 import os
 import speechbrain as sb
 import sys
-from data_prep_utils.dataset_preparation.dataset_preparation import prepare_dataset
-from data_prep_utils.dataset_preparation.dataio_prep import dataio_prep
 from hyperpyyaml import load_hyperpyyaml
-from models.brain import get_brain_class
+from src.brain import get_brain_class
 from speechbrain.pretrained.training import save_for_pretrained
+from src.data import dataio_prep
 
 logger = logging.getLogger(__name__)
 
