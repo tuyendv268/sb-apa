@@ -83,6 +83,7 @@ class ScorerWav2vec2(sb.Brain):
         h_scoring, _ = self.modules.dec(e_in_canonical, x, wav_lens)
 
         # Computing phone representations for pronounced and canonical phones
+        print(h_scoring.shape)
         phone_rep_pred = self.modules.scorer_nn(h_scoring)
         emb_actual = self.modules.emb_scorer(phns_canonical_eos)
         emb_actual = self.modules.scorer_nn(emb_actual)

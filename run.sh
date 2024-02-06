@@ -1,6 +1,6 @@
 #!/bin/bash
 
-STAGE=2
+STAGE=1
 MODEL_TYPE="w2v2"
 
 DATA_DIR=data  # Change this path to the path where you keep your data.
@@ -58,7 +58,6 @@ if [ $STAGE -le 2 ]; then
     SCORING_MODEL_DIR="results/scoring"
     PRETRAINED_MODEL_DIR="results/apr"
     SCORING_HPARAM_FILE="hparams/scoring.yml"
-    LABEL_ENCODER_PATH="pretrained/apr/label_encoder.txt"
 
     [ -d $SCORING_MODEL_DIR ] && rm -r $SCORING_MODEL_DIR && echo "Removed existing $SCORING_MODEL_DIR directory.";
 
@@ -66,7 +65,6 @@ if [ $STAGE -le 2 ]; then
     #     --data_folder=$SOCRING_DATA_FOLDER \
     #     --batch_size=4 \
     #     --pretrained_model_folder=$PRETRAINED_MODEL_DIR \
-    #     --label_encoder_path= $LABEL_ENCODER_PATH \
     #     --use_augmentation=True \
     #     --round_scores=False \
     #     --exp_folder=$SCORING_MODEL_DIR \
@@ -83,7 +81,6 @@ if [ $STAGE -le 2 ]; then
         --data_folder=$SOCRING_DATA_FOLDER \
         --batch_size=4 \
         --pretrained_model_folder=$PRETRAINED_MODEL_DIR \
-        --label_encoder_path= $LABEL_ENCODER_PATH \
         --use_augmentation=True \
         --round_scores=False \
         --exp_folder=$SCORING_MODEL_DIR \

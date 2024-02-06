@@ -19,6 +19,5 @@ def get_brain_class(hparams):
     model_type = hparams["model_type"]
     if model_task == "apr":
         return brain_classes[model_task][model_type]["pure"]
-
     else:
         return brain_classes[model_task][model_type]["pure"]
