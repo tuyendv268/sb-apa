@@ -180,8 +180,7 @@ class PrepModel(nn.Module):
         p_x = phn_embed + phn_canon_embed + self.pos_embed(phn_embed)
         for block in self.phone_encoders:
             p_x = block(p_x)
-        phone_acc_score = self.phone_acc_head(p_x)
-
+            
         w_x = p_x + self.rel_pos_embed(rel_pos)
         w_x = self.ds_conv(w_x)
         for block in self.word_encoders:
@@ -195,5 +194,5 @@ class PrepModel(nn.Module):
         u_x, attn = self.utt_addi(query=u_x, key=u_x, value=u_x)
         utt_acc_score = self.utt_acc_head(u_x.squeeze(1))
 
-        return utt_acc_score, phone_acc_score, word_acc_score
+        return utt_acc_score, word_acc_score
     

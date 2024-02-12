@@ -14,9 +14,9 @@ wav2vec2_hub: "microsoft/wavlm-large"
 # Data files
 data_folder: !PLACEHOLDER 
 
-train_annotation: data/apr/train.json
-valid_annotation: data/apr/val.json
-test_annotation: data/apr/test.json
+train_annotation: data/prep-apr/train.json
+valid_annotation: data/prep-apr/val.json
+test_annotation: data/prep-apr/test.json
 
 wav2vec2_save_path: ckpts/wav2vec2.pt
 skip_prep: False # Skip data preparation
@@ -36,7 +36,7 @@ model_task: "apr"
 dataset_name: "apr"
 hpopt_mode: null
 optimizing_hps: False
-number_of_epochs: 6
+number_of_epochs: 3
 batch_size: 4
 lr: 0.0003
 lr_wav2vec: 0.0001

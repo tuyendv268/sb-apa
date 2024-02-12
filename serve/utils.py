@@ -8,7 +8,7 @@ def load_lexicon(path):
     lexicon["word"] = lexicon.word.apply(lambda x: x.lower())
     lexicon["arpa"] = lexicon.arpa.apply(lambda x: re.sub("\d", "", x).lower())
 
-    lexicon.word.drop_duplicates(inplace=True)
+    lexicon.word.drop_duplicates(inplace=True, keep='last')
     lexicon.set_index("word", inplace=True)
     lexicon = lexicon.to_dict()["arpa"]
 

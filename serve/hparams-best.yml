@@ -1,63 +1,25 @@
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-pretrained_model_folder: !PLACEHOLDER
-exp_folder: !PLACEHOLDER  # Experiment folder
-output_folder: !ref <exp_folder>
-scoring_dist_file: !ref <output_folder>/scoring_dist.txt
-predict_file: /data/codes/sb-apa/data/scoring/apa-type-12-test/pred.csv
-save_folder: !ref <output_folder>/save
-best_model_folder: !ref <save_folder>/best
-train_log: !ref <output_folder>/train_log.txt
-
-# URL for Microsoft's WavLM model.
 wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
-data_folder: !PLACEHOLDER 
-train_annotation: /data/codes/sb-apa/data/scoring/train.json
-valid_annotation: /data/codes/sb-apa/data/scoring/val.json
-test_annotation: /data/codes/sb-apa/data/scoring/apa-type-12-test/test-type-12-short.json
-wav2vec2_save_path: ckpts/wav2vec2.pt
-skip_prep: False # Skip data preparation
-label_encoder_path: null
+wav2vec2_save_path: pretrained
+label_encoder_path: results/scoring/save/label_encoder.txt
+lexicon_path: lexicon
+ckpt_path: results/scoring/save/best
 
-# Experiment metadata and result files
-exp_id: -1  # This will be replaced by the experiment ID.
-pretrained_model_exp_id: -1 # This will be replaced by the pretrained model ID.
-exp_description: ""
-exp_metadata_file: !PLACEHOLDER
-results_file: !PLACEHOLDER
-epoch_results_dir: !PLACEHOLDER
-params_dir: !PLACEHOLDER
+# Relative Position Id
+PAD_POSITION_ID: 0
+START_POSITION_ID: 1
+INNER_POSITION_ID: 2
+END_POSITION_ID: 3
 
-# Training parameters
-training_type: "fine_tuning"
-model_type: "wav2vec2.0"
-model_task: "scoring"
-noisy_phones_utt_per_original_utt: 0
-dataset_name: "scoring"
-multi_task_pretrained_model: False
-round_scores: False
-hpopt_mode: null
-optimizing_hps: False
-multi_task: False
-query_assisted: False
-train_split_ratio: 1.0
-number_of_epochs: 3
-batch_size: 8 # Used if dynamic_batching is False
-lr: 0.0001
-lr_wav2vec: 0.0001
-lr_scorer: 0.0001
-warmup_steps_wav2vec: 0
-warmup_steps_asr: 0
-ctc_weight: 0.2
-pcc_weight: 0.5
-scoring_weight: 0.5
-sorting: ascending
-auto_mix_prec: False
-use_augmentation: False
+number_of_epochs: 10
+batch_size: 16
+lr: 0.0003
 sample_rate: 16000
+device: cuda
 
 # Model parameters
 activation: !name:torch.nn.LeakyReLU
@@ -213,39 +175,13 @@ model: !new:torch.nn.ModuleList
 model_scorer: !new:torch.nn.ModuleList
     - [!ref <scorer_nn>, !ref <emb_scorer>, !ref <scorer_similarity_nn>, !ref <prep_scorer>]
 
-wav2vec_opt_class: !name:torch.optim.Adam
-    lr: !ref <lr_wav2vec>
-
-asr_opt_class: !name:torch.optim.Adam
-    lr: !ref <lr>
-
-scorer_opt_class: !name:torch.optim.Adam
-    lr: !ref <lr_scorer>
-
-lr_annealing_asr: !new:speechbrain.nnet.schedulers.NewBobScheduler
-    initial_value: !ref <lr>
-    improvement_threshold: 0.0025
-    annealing_factor: 0.8
-    patient: 0
-
-lr_annealing_scorer: !new:speechbrain.nnet.schedulers.NewBobScheduler
-    initial_value: !ref <lr>
-    improvement_threshold: 0.0025
-    annealing_factor: 0.8
-    patient: 0
-
-lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
-    initial_value: !ref <lr_wav2vec>
-    improvement_threshold: 0.0025
-    annealing_factor: 0.9
-
-prep_scorer: !new:src.models.prep_model.PrepModel
-    embed_dim: 32
+prep_scorer: !new:core.PrepModel
+    embed_dim: 48
     num_heads: 1
-    depth: 3
+    depth: 2
     input_dim: 256
     max_length: 256
-    dropout: 0.5
+    dropout: 0.1
     num_phone: 46
 
 modules:
@@ -259,53 +195,3 @@ modules:
     scorer_nn: !ref <scorer_nn>
     emb_scorer: !ref <emb_scorer>
     scorer_similarity_nn: !ref <scorer_similarity_nn>
-
-checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
-    checkpoints_dir: !ref <save_folder>
-    recoverables:
-        wav2vec2: !ref <wav2vec2>
-        model: !ref <model>
-        model_scorer: !ref <model_scorer>
-        lr_annealing_wav2vec: !ref <lr_annealing_wav2vec>
-        lr_annealing_asr: !ref <lr_annealing_asr>
-        lr_annealing_scorer: !ref <lr_annealing_scorer>
-        counter: !ref <epoch_counter>
-
-train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
-    save_file: !ref <train_log>
-
-score_stats_mse: !name:speechbrain.utils.metric_stats.MetricStats
-    metric: !name:speechbrain.nnet.losses.mse_loss
-
-score_stats_pcc: !name:speechbrain.utils.metric_stats.MetricStats
-    metric: !name:torch.corrcoef
-
-ctc_stats: !name:speechbrain.utils.metric_stats.MetricStats
-    metric: !name:speechbrain.nnet.losses.ctc_loss
-        blank_index: !ref <blank_index>
-        reduction: batch
-
-seq_stats: !name:speechbrain.utils.metric_stats.MetricStats
-    metric: !name:speechbrain.nnet.losses.nll_loss
-        label_smoothing: 0.1
-        reduction: batch
-
-scoring_stats_dist: !name:utils.metrics.DistanceScoringStats
-
-pretrained_model: !new:speechbrain.utils.parameter_transfer.Pretrainer
-    loadables:
-        model: !ref <model>
-        wav2vec2: !ref <wav2vec2>
-    paths:
-        model: !ref <best_model_folder>/model.ckpt
-        wav2vec2: !ref <best_model_folder>/wav2vec2.ckpt
-
-pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
-    loadables:
-        model: !ref <model>
-        model_scorer: !ref <model_scorer>
-        wav2vec2: !ref <wav2vec2>
-    paths:
-        model: !ref <best_model_folder>/model.ckpt
-        model_scorer: !ref <best_model_folder>/model_scorer.ckpt
-        wav2vec2: !ref <best_model_folder>/wav2vec2.ckpt

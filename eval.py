@@ -49,18 +49,20 @@ if __name__ == "__main__":
     })
 
     # Load the pre-trained model
-    if hparams["training_type"] == "fine_tuning":
-        hparams["pretrained_model"].add_custom_hooks({
-                'exp_id': int_recovery_pretrainer,
-        })
-        hparams["pretrained_model"].set_collect_in(os.path.join(hparams['pretrained_model_folder'], "save", "best"))
+    # if hparams["training_type"] == "fine_tuning":
+    hparams["pretrained_model"].add_custom_hooks({
+            'exp_id': int_recovery_pretrainer,
+    })
+    hparams["pretrained_model"].set_collect_in(os.path.join(hparams['pretrained_model_folder'], "save", "best"))
 
-        if "multi_task_pretrained_model" in hparams and hparams["multi_task_pretrained_model"] is True:
-            hparams["pretrained_model"].add_loadables({
-                "model_scorer": hparams["model_scorer"]
-            })
+    # if "multi_task_pretrained_model" in hparams and hparams["multi_task_pretrained_model"] is True:
+    hparams["pretrained_model"].add_loadables({
+        "wav2vec2": hparams["wav2vec2"],
+        "model_scorer": hparams["model_scorer"],
+        "model": hparams["model"],
+    })
 
-        hparams["pretrained_model"].load_collected()
+    hparams["pretrained_model"].load_collected()
 
     # Load the label encoder
     if "pretrained_model_folder" in hparams or hparams["model_task"] == "scoring":
@@ -104,20 +106,9 @@ if __name__ == "__main__":
 
     brain.label_encoder = label_encoder
 
-    # # Training/validation loop
-    # brain.fit(
-    #     brain.hparams.epoch_counter,
-    #     train_data,
-    #     valid_data,
-    #     train_loader_kwargs=hparams["train_dataloader_opts"],
-    #     valid_loader_kwargs=hparams["valid_dataloader_opts"],
-    # )
-
     # Test
     brain.evaluate(
         test_data,
         min_key="PER",
         test_loader_kwargs=hparams["test_dataloader_opts"],
     )
-    # Save the best model to be used for fine-tuning
-    save_for_pretrained(hparams)

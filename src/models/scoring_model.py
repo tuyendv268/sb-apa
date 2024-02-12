@@ -52,28 +52,17 @@ class ScorerWav2vec2(sb.Brain):
         phone_rep_pred = self.modules.scorer_nn(h_scoring)
         emb_actual = self.modules.emb_scorer(phns_canonical_eos)
         emb_actual = self.modules.scorer_nn(emb_actual)
-
-        utt_acc_score, phone_acc_score, word_acc_score = self.modules.prep_scorer(
+        
+        utt_acc_score, word_acc_score = self.modules.prep_scorer(
             h_scoring[:, :-1].detach().clone(), phns_canonical_eos[:, :-1], rel_pos
         )
 
-        # # Computing similarity
-        if self.hparams.similarity_calc == "cosine":
-            # Cosine similarity
-            scores_pred = torch.nn.functional.cosine_similarity(
-                phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
-        elif self.hparams.similarity_calc == "euclidean":
-            # Normalized Euclidean similarity (NES)
-            scores_pred = 1.0 - 0.5 * (phone_rep_pred - emb_actual).var(dim=2) / \
-                          (phone_rep_pred.var(dim=2) + emb_actual.var(dim=2))
-        else:
-            scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
-                .view(self.hparams.batch_size, emb_actual.shape[1])
+        phone_acc_score = torch.nn.functional.cosine_similarity(
+            phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
 
-        phone_acc_score = phone_acc_score.squeeze(2)
         word_acc_score = word_acc_score.squeeze(2)
 
-        return utt_acc_score, scores_pred, word_acc_score
+        return utt_acc_score, phone_acc_score, word_acc_score
     
     def infer(self, wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos):
         feats = self.hparams.wav2vec2(wavs)
@@ -83,7 +72,6 @@ class ScorerWav2vec2(sb.Brain):
         h_scoring, _ = self.modules.dec(e_in_canonical, x, wav_lens)
 
         # Computing phone representations for pronounced and canonical phones
-        print(h_scoring.shape)
         phone_rep_pred = self.modules.scorer_nn(h_scoring)
         emb_actual = self.modules.emb_scorer(phns_canonical_eos)
         emb_actual = self.modules.scorer_nn(emb_actual)
@@ -92,18 +80,8 @@ class ScorerWav2vec2(sb.Brain):
             h_scoring[:, :-1].detach().clone(), phns_canonical_eos[:, :-1], rel_pos
         )
 
-        # # Computing similarity
-        if self.hparams.similarity_calc == "cosine":
-            # Cosine similarity
-            scores_pred = torch.nn.functional.cosine_similarity(
-                phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
-        elif self.hparams.similarity_calc == "euclidean":
-            # Normalized Euclidean similarity (NES)
-            scores_pred = 1.0 - 0.5 * (phone_rep_pred - emb_actual).var(dim=2) / \
-                          (phone_rep_pred.var(dim=2) + emb_actual.var(dim=2))
-        else:
-            scores_pred = self.modules.scorer_similarity_nn(torch.concat([phone_rep_pred, emb_actual], dim=2)) \
-                .view(self.hparams.batch_size, emb_actual.shape[1])
+        scores_pred = torch.nn.functional.cosine_similarity(
+            phone_rep_pred, emb_actual, dim=len(phone_rep_pred.shape) - 1)
 
         phone_acc_score = phone_acc_score.squeeze(2)
         word_acc_score = word_acc_score.squeeze(2)
@@ -146,7 +124,7 @@ class ScorerWav2vec2(sb.Brain):
         wrd_loss = self.hparams.score_cost(label_wrd_acc_score, pred_wrd_acc_score, phn_lens)
         utt_loss = self.hparams.score_cost(label_utt_acc_score, pred_utt_acc_score)
 
-        loss = phn_loss + wrd_loss + utt_loss
+        loss = phn_loss + (wrd_loss + utt_loss)
         
         train_log = {
             "phn_loss": phn_loss.cpu().item(),
@@ -160,6 +138,9 @@ class ScorerWav2vec2(sb.Brain):
         
         pred_wrd_acc_score = self.rescale_scores(pred_wrd_acc_score)
         label_wrd_acc_score = self.rescale_scores(label_wrd_acc_score)
+        
+        pred_utt_acc_score = self.rescale_scores(pred_utt_acc_score)
+        label_utt_acc_score = self.rescale_scores(label_utt_acc_score)
 
         # Record losses for posterity
         if stage != sb.Stage.TRAIN:
@@ -169,6 +150,11 @@ class ScorerWav2vec2(sb.Brain):
         # Save predictions to compute MSE and PCC in the end of the stage.
         real_length_phn_prediction_seq = self.get_real_length_sequences(pred_phn_acc_score, phn_lens)
         real_length_phn_scores = self.get_real_length_sequences(label_phn_acc_score, phn_lens)
+        
+        if stage == sb.Stage.TEST:
+            self.ids += ids
+            self.save_phn_preds += [sample.detach().cpu().tolist() for sample in real_length_phn_prediction_seq]
+            self.save_phn_scores += [sample.detach().cpu().tolist() for sample in real_length_phn_scores]
         
         real_length_phn_prediction_seq = torch.concat(real_length_phn_prediction_seq, 0)
         real_length_phn_scores = torch.concat(real_length_phn_scores, 0)
@@ -203,7 +189,7 @@ class ScorerWav2vec2(sb.Brain):
         
         self.stage_phn_preds.append(real_length_phn_prediction_seq.detach().cpu())
         self.stage_phn_scores.append(real_length_phn_scores.detach().cpu())
-        
+                
         self.stage_phn_preds_rounded.append(self.round_scores(real_length_phn_prediction_seq).detach().cpu())
         self.stage_phn_scores_rounded.append(self.round_scores(real_length_phn_scores).detach().cpu())
 
@@ -295,6 +281,10 @@ class ScorerWav2vec2(sb.Brain):
         
         self.stage_wrd_preds = []
         self.stage_wrd_scores = []
+        
+        self.ids = []
+        self.save_phn_preds = []
+        self.save_phn_scores = []
 
         if stage != sb.Stage.TRAIN:
             self.distance_scoring_metrics = self.hparams.scoring_stats_dist()
@@ -428,7 +418,22 @@ class ScorerWav2vec2(sb.Brain):
         stage_mse_rounded = torch.nn.functional.mse_loss(stage_preds_rounded, stage_scores_rounded).item()
 
         results_to_log = dict()
-
+        
+        if stage == sb.Stage.TEST:
+            import pandas as pd
+            pred_result = pd.DataFrame(
+                {
+                    "id": self.ids,
+                    "pred": self.save_phn_preds,
+                    "label": self.save_phn_scores,
+                }
+            )
+            
+            pred_result["pred"] = pred_result["pred"].apply(lambda row: " ".join(map(str, row)))
+            pred_result["label"] = pred_result["label"].apply(lambda row: " ".join(map(str, row)))
+        
+            pred_result.to_csv(self.hparams.predict_file, index=None)
+        
         if stage == sb.Stage.TRAIN:
             self.train_loss = stage_loss
             self.train_pcc = stage_pcc

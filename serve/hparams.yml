@@ -176,14 +176,14 @@ model_scorer: !new:torch.nn.ModuleList
     - [!ref <scorer_nn>, !ref <emb_scorer>, !ref <scorer_similarity_nn>, !ref <prep_scorer>]
 
 prep_scorer: !new:core.PrepModel
-    embed_dim: 48
+    embed_dim: 32
     num_heads: 1
-    depth: 2
+    depth: 3
     input_dim: 256
     max_length: 256
-    dropout: 0.1
+    dropout: 0.5
     num_phone: 46
-
+    
 modules:
     wav2vec2: !ref <wav2vec2>
     prep_scorer: !ref <prep_scorer>
