@@ -308,7 +308,7 @@ if __name__ == "__main__":
     with open(hparams_file) as fin:
         hparams = load_hyperpyyaml(fin, overrides)
 
-    LEXICON_PATH = "resources/lexicon"
+    LEXICON_PATH = "lexicon"
     CKPT_PATH = "results/scoring/save/best"
     LABLE_ENCODER_PATH = "results/scoring/save/label_encoder.txt"
 

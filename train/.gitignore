@@ -1,0 +1,7 @@
+ckpts
+data
+*.wav
+pretrained
+results*
+__pycache__
+kaldi

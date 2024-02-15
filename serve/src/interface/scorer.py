@@ -11,17 +11,17 @@ import json
 
 from g2p_en import G2p
 
-from core import ScorerWav2vec2
+from src.model.wav2vec_scorer import ScorerWav2vec2
 from nemo_text_processing.text_normalization.normalize import Normalizer
 from speechbrain.dataio.dataloader import SaveableDataLoader
 from speechbrain.dataio.batch import PaddedBatch
 
-from data import infer_dataio_prep
-from utils import (
+from src.utils.data import infer_dataio_prep
+from src.utils.scorer import (
     load_lexicon
 )
 import re
-
+SAMPLE_RATE = 16000
 def load_state_dict(hparams):
     wav2vec2_state_dict = torch.load(f'{hparams["ckpt_path"]}/wav2vec2.ckpt')
     hparams["wav2vec2"].load_state_dict(wav2vec2_state_dict)
@@ -52,7 +52,7 @@ def init_model(hparams, run_opts):
     return model, label_encoder, hparams
 
 
-class SB_PREP_Model():
+class Prep_Scorer():
     def __init__(self, hparams, run_opts) -> None:
         self.hparams = hparams        
         self.lexicon = load_lexicon(hparams["lexicon_path"])
@@ -76,64 +76,45 @@ class SB_PREP_Model():
         text = re.sub('\s+', ' ', text)
         text = text.lower().strip()
         return text
-            
-    def prepare_input_text(self, transcript):
-        transcript = self.normalize(transcript)
-        words = transcript.split()
-        
-        word_ids = []
-        phones, rel_positions = [], []
-        for _word_id, _word in enumerate(words):
-            try:
-                _phones = self.lexicon[_word].split()
-            except:
-                print("### Out Of Vocabulary !!!")
-                _phones = []
-                for _phone in self.g2p(_word):
-                    if _phone == "AH0":
-                        _phone = "AX"
-                    _phone = re.sub("\d", "", _phone).lower()
-                    _phones.append(_phone)
 
-            for _index, _phone in enumerate(_phones):
-                if _index == 0:
-                    _rel_position = self.START_POSITION_ID
-                    
-                elif _index == len(_phones) - 1:
-                    _rel_position = self.END_POSITION_ID
-                    
-                else:
-                    _rel_position = self.INNER_POSITION_ID
-
-                rel_positions.append(str(_rel_position))
-                word_ids.append(str(_word_id))
-
-            phones += _phones
-
-        assert len(phones) == len(rel_positions)
-        phones, rel_positions, word_ids = " ".join(phones), \
-            " ".join(rel_positions), " ".join(word_ids)
-
-        return transcript, words, phones, rel_positions, word_ids
-    
     def prepare_data(self, batch):
+        """
+        batch = [
+            {
+                "id": index,
+                "audio": _audio,
+                "transcript": _transcript,
+                "transcript_arpabet": _transcript_arpabet,
+                "rel_position": _rel_position,
+                "word_id": _word_id
+            },
+            
+        ]
+        """
         dataset = {}
         for sample in batch:
             _id = sample["id"]
             _audio = sample["audio"]
+            _transcript_arpabet = [re.sub("\d", "", phone).lower() for phone in sample["transcript_arpabet"]]
             _transcript = sample["transcript"]
+            _rel_position = sample["rel_position"]
+            _word_ids = sample["word_id"]
+            _words = sample["transcript"].split()
+            _alignment = sample["alignment"]
             
-            _transcript, _words, _phones, _rel_positions, \
-                _word_ids = self.prepare_input_text(_transcript)
-
+            _transcript_arpabet = " ".join(_transcript_arpabet)
+            _word_ids = " ".join(list(map(str, _word_ids)))
+            _rel_position = " ".join(list(map(str, _rel_position)))
+            
             dataset[_id] = {
-                "phn": _phones,
+                "phn": _transcript_arpabet,
                 "utt": _transcript,
                 "wrd": _words,
-                "phn_canonical": _phones,
-                "rel_pos": _rel_positions,
+                "phn_canonical": _transcript_arpabet,
+                "rel_pos": _rel_position,
                 "wav": _audio,
-                "wrd_id": _word_ids
+                "wrd_id": _word_ids,
+                "alignment": _alignment
             }
 
         return dataset
@@ -167,8 +148,11 @@ class SB_PREP_Model():
         pred_ids, wrd_ids= [], []
         utterances, words, phones = [], [], []
         phn_acc_scores, wrd_acc_scores, utt_acc_scores = [], [], []
+        alignments = []
+        durations = []
         for batch in dataloader:
             ids = batch.id
+            alignment = batch.alignment_list
             wavs, wav_lens = batch.sig
             rel_pos, _ = batch.rel_pos_list
             wrd_id, _ = batch.wrd_id_list
@@ -178,6 +162,8 @@ class SB_PREP_Model():
 
             wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos = \
                 wavs.cuda(), wav_lens.cuda(), rel_pos.cuda(), phns_canonical_bos.cuda(), phns_canonical_eos.cuda()
+
+            durations += (wavs.shape[-1] * wav_lens / SAMPLE_RATE).cpu().tolist()
 
             utt_acc_score, phn_acc_score, wrd_acc_score = self.prep_model.infer(
                 wavs, wav_lens, rel_pos, phns_canonical_bos, phns_canonical_eos)
@@ -203,6 +189,8 @@ class SB_PREP_Model():
             utterances += batch.utt
             words += batch.wrd
             
+            alignments+=alignment
+
         outputs = {}
         for index in range(len(pred_ids)):
             _pred_ids = pred_ids[index] 
@@ -213,6 +201,9 @@ class SB_PREP_Model():
             _phn_acc_scores = phn_acc_scores[index] 
             _wrd_acc_scores = wrd_acc_scores[index] 
             _utt_acc_scores = utt_acc_scores[index] 
+            _start_time = [phone[0] for phone in alignments[index]]
+            _end_time = [phone[1] for phone in alignments[index]]
+            _duration = durations[index]   
             
             outputs[_pred_ids] = {
                 "id": _pred_ids,
@@ -220,12 +211,14 @@ class SB_PREP_Model():
                 "utt": _utterances,
                 "wrd": _words,
                 "phn": _phones,
+                "duration": _duration,
                 "phn_acc_score": _phn_acc_scores,
                 "wrd_acc_score": _wrd_acc_scores,
                 "utt_acc_score": _utt_acc_scores,
-                
+                "start_time": _start_time,
+                "end_time": _end_time
             }
-            
+        
         return outputs
 
 if __name__ == "__main__":
@@ -247,7 +240,7 @@ if __name__ == "__main__":
     
     batch = []
     for index, (wav_path, transcript) in enumerate(zip(wav_files, transcripts)):
-        wav, sr = librosa.load(wav_path, sr=16000)
+        wav, sr = librosa.load(wav_path, sr=SAMPLE_RATE)
         sample = {
             "id": index,
             "audio": wav.tolist(),
@@ -256,7 +249,7 @@ if __name__ == "__main__":
         
         batch.append(sample)
     
-    model = SB_PREP_Model(hparams=hparams, run_opts=run_opts)
+    model = Prep_Scorer(hparams=hparams, run_opts=run_opts)
     outputs = model.run(
         batch=batch
     )

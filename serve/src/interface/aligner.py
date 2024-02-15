@@ -23,14 +23,14 @@ import yaml
 import sys
 import os
 
-from src.model import FTDNNAcoustic
+from src.model.acoustic_model import FTDNNAcoustic
 
 from kaldi.alignment import GmmAligner
 from kaldi.fstext import SymbolTable
 from kaldi.lat.align import WordBoundaryInfoNewOpts, WordBoundaryInfo
 from kaldi.util.table import SequentialMatrixReader
 
-from src.utils import (
+from src.utils.aligner import (
     load_ivector_period_from_conf,
     extract_features_using_kaldi,
     load_config
@@ -120,6 +120,8 @@ class GMM_Aligner(object):
 
         output = self.run_align(
             batch=batch, data_dir=data_dir)
+        
+        output = self.post_process(output)
 
         return output
 
@@ -141,11 +143,28 @@ class GMM_Aligner(object):
                 phone_alignment = self.model.to_phone_alignment(output["alignment"], self.phones)
                 # print(fkey, phone_alignment, flush=True)
                 id2ali[fkey] = phone_alignment
-                
+        
         for index, sample in enumerate(batch):
             batch[index]["alignment"] = id2ali[str(sample["id"])]
             
         return batch
+    
+    def post_process(self, batch):
+        for index, sample in enumerate(batch):
+            _alignment = []
+                        
+            for _phone in sample["alignment"]:
+                if _phone[0] in ["SIL", "SPN"]:
+                    continue
+                _phone = list(_phone)
+                _phone[1] = round(_phone[1]*0.01, 2)
+                _phone[2] = round(_phone[1] + _phone[2]*0.01, 2)
+                _alignment.append(_phone)
+            
+            batch[index]["alignment"] = _alignment
+            
+        return batch
+
     
 class Nnet3_Aligner(object):
     def __init__(self, configs):
@@ -263,18 +282,33 @@ class Nnet3_Aligner(object):
         if not os.path.exists(data_dir):
             os.mkdir(data_dir)
 
-        self.prepare_data(
-            data_dir=data_dir, batch=batch,
-        )
+        self.prepare_data(data_dir=data_dir, batch=batch)
         extract_features_using_kaldi(
-            conf_path=self.conf_path, data_dir=data_dir
-        )
-
-        output = self.run_align(
-            batch=batch, data_dir=data_dir)
+            conf_path=self.conf_path, data_dir=data_dir)
+        
+        output = self.run_align(batch=batch, data_dir=data_dir)
+        output = self.post_process(output)
 
         return output
     
+    def post_process(self, batch):
+        for index, sample in enumerate(batch):
+            _alignment = []
+                        
+            for _phone in sample["alignment"]:
+                if _phone[0] in ["SIL", "SPN"]:
+                    continue
+                _phone = list(_phone)
+                _phone[1] = _phone[1]*0.01
+                _phone[2] = _phone[1] + _phone[2]*0.01
+                
+                _alignment.append(_phone)
+                
+            
+            batch[index]["alignment"] = _alignment
+            
+        return batch
+
     def pad_1d(self, inputs, max_length=None, pad_value=0.0):
         if max_length is None:
             max_length = max([sample.shape[0] for sample in inputs])     

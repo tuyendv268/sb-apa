@@ -175,13 +175,13 @@ model: !new:torch.nn.ModuleList
 model_scorer: !new:torch.nn.ModuleList
     - [!ref <scorer_nn>, !ref <emb_scorer>, !ref <scorer_similarity_nn>, !ref <prep_scorer>]
 
-prep_scorer: !new:core.PrepModel
+prep_scorer: !new:src.model.prep_model.PrepModel
     embed_dim: 32
     num_heads: 1
     depth: 3
     input_dim: 256
     max_length: 256
-    dropout: 0.5
+    dropout: 0.1
     num_phone: 46
     
 modules:

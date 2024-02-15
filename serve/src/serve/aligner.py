@@ -1,5 +1,5 @@
-from src.utils import load_config
-from src.core import Nnet3_Aligner, GMM_Aligner
+from src.utils.aligner import load_config
+from src.interface.aligner import Nnet3_Aligner, GMM_Aligner
 
 from ray.serve.handle import DeploymentHandle
 from starlette.requests import Request
@@ -70,7 +70,7 @@ class Nnet3_Forced_Aligner:
                 {
                     "id": _id,
                     "transcript": _transcript,
-                    "wav_path": _audio_path
+                    "wav_path": _audio_path,
                 }
             )
 
@@ -102,6 +102,7 @@ class Nnet3_Forced_Aligner:
     def postprocess(self, batch):
 
         return batch
+
     
 @serve.deployment(
     # num_replicas=2, 
@@ -221,21 +222,35 @@ class Forced_Aligner:
         return await self.nnet3_aligner.run.remote(
             sample
         )
+        
+    async def run(self, sample):
+        if len(sample["transcript"].split()) > 2:
+            print("###Run NNet3 aligner")
+            return await self.run_nnet3_aligner(
+                 sample
+            )
+        else:
+            print("###Run GMM aligner")
+            return await self.run_gmm_aligner(
+                 sample
+            ) 
 
     async def __call__(self, http_request: Request):
         sample = await http_request.json() 
 
         if len(sample["transcript"].split()) > 2:
+            print("###Run NNet3 aligner")
             return await self.run_nnet3_aligner(
                  sample
             )
         else:
-            return await self.run_nnet3_aligner(
+            print("###Run GMM aligner")
+            return await self.run_gmm_aligner(
                  sample
             ) 
 
-configs = load_config("config.yml")
-nnet3_app = Nnet3_Forced_Aligner.bind(configs)
-gmm_app = GMM_Forced_Aligner.bind(configs)
+# configs = load_config("config.yml")
+# nnet3_app = Nnet3_Forced_Aligner.bind(configs)
+# gmm_app = GMM_Forced_Aligner.bind(configs)
 
-app = Forced_Aligner.bind(gmm_app, nnet3_app)
+# app = Forced_Aligner.bind(gmm_app, nnet3_app)

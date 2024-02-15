@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
+export CUDA_VISIBLE_DEVICES=1
 
-CUDA_VISIBLE_DEVICES=1 serve run serve:app --host 0.0.0.0 --port 8686
+. ./path.sh
+
+CUDA_VISIBLE_DEVICES=1 serve run main:app --host 0.0.0.0 --port 9999

@@ -37,7 +37,7 @@ def infer_dataio_prep(dataset, label_encoder):
     sb.dataio.dataset.add_dynamic_item(dataset, text_pipeline)
 
     @sb.utils.data_pipeline.takes(
-        "utt", "wrd", "phn", "wrd_id", "rel_pos"
+        "utt", "wrd", "phn", "wrd_id", "rel_pos", "alignment"
         )
     @sb.utils.data_pipeline.provides(
         "utt",
@@ -47,9 +47,10 @@ def infer_dataio_prep(dataset, label_encoder):
         "phn_canonical_encoded_eos",
         "phn_canonical_encoded_bos",
         "wrd_id_list",
-        "rel_pos_list"
+        "rel_pos_list",
+        "alignment_list"
     )
-    def text_canonical_pipeline(utt, wrd, phn, wrd_id, rel_pos):
+    def text_canonical_pipeline(utt, wrd, phn, wrd_id, rel_pos, alignment):
         yield utt
         yield wrd
 
@@ -77,6 +78,10 @@ def infer_dataio_prep(dataset, label_encoder):
         rel_pos_list = [int(ele) for ele in rel_pos.strip().split()]
         rel_pos_list = torch.LongTensor(rel_pos_list)
         yield rel_pos_list
+        
+        
+        alignment_list = [ele for ele in alignment]
+        yield alignment_list
     sb.dataio.dataset.add_dynamic_item(dataset, text_canonical_pipeline)
 
     output_keys = [
@@ -90,6 +95,7 @@ def infer_dataio_prep(dataset, label_encoder):
         "phn_canonical_encoded_eos",
         "wrd_id_list",
         "rel_pos_list",
+        "alignment_list"
     ]
 
     sb.dataio.dataset.set_output_keys(dataset, output_keys)

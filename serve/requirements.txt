@@ -1,5 +1,7 @@
 HyperPyYAML==1.1.0
 pandas==1.5.2
 speechbrain==0.5.14
-torch==1.13.0
+transformers==4.36.2
+fastapi==0.108.0
+librosa
 g2p_en

@@ -105,13 +105,13 @@ if __name__ == "__main__":
     brain.label_encoder = label_encoder
 
     # # Training/validation loop
-    # brain.fit(
-    #     brain.hparams.epoch_counter,
-    #     train_data,
-    #     valid_data,
-    #     train_loader_kwargs=hparams["train_dataloader_opts"],
-    #     valid_loader_kwargs=hparams["valid_dataloader_opts"],
-    # )
+    brain.fit(
+        brain.hparams.epoch_counter,
+        train_data,
+        valid_data,
+        train_loader_kwargs=hparams["train_dataloader_opts"],
+        valid_loader_kwargs=hparams["valid_dataloader_opts"],
+    )
 
     # Test
     brain.evaluate(
