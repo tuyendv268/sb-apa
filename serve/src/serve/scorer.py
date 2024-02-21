@@ -5,7 +5,7 @@ from ray import serve
 import librosa
 import torch
 
-from src.interface.scorer import Prep_Scorer
+from src.core.scorer import Prep_Scorer
 
 import pandas as pd
 from src.utils.arpa import arpa_to_ipa

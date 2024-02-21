@@ -5,7 +5,7 @@ pretrained_model_folder: !PLACEHOLDER
 exp_folder: !PLACEHOLDER  # Experiment folder
 output_folder: !ref <exp_folder>
 scoring_dist_file: !ref <output_folder>/scoring_dist.txt
-predict_file: /data/codes/sb-apa/data/scoring/apa-type-12-test/pred.csv
+predict_file: /data/codes/sb-apa/train/data/scoring/apa-type-12-test/pred.csv
 save_folder: !ref <output_folder>/save
 best_model_folder: !ref <save_folder>/best
 train_log: !ref <output_folder>/train_log.txt
@@ -15,13 +15,10 @@ wav2vec2_hub: "microsoft/wavlm-large"
 
 # Data files
 data_folder: !PLACEHOLDER 
-# train_annotation: /data/codes/sb-apa/data/scoring/train.json
-# valid_annotation: /data/codes/sb-apa/data/scoring/val.json
-# test_annotation: /data/codes/sb-apa/data/scoring/apa-type-12-test/test-type-12-short.json
-train_annotation: /data/codes/sb-apa/data/scoring/apa-type-10/train.json
-valid_annotation: /data/codes/sb-apa/data/scoring/apa-type-10/val.json
-test_annotation: /data/codes/sb-apa/data/scoring/apa-type-12-test/test-type-12-short.json
-wav2vec2_save_path: ckpts/wav2vec2.pt
+train_annotation: /data/codes/sb-apa/train/data/scoring/train.json
+valid_annotation: /data/codes/sb-apa/train/data/scoring/val.json
+test_annotation: /data/codes/sb-apa/train/data/scoring/apa-type-12-test/test-type-12-short.json
+wav2vec2_save_path: ckpts/wav2vec2
 skip_prep: False # Skip data preparation
 label_encoder_path: null
 
@@ -49,9 +46,9 @@ query_assisted: False
 train_split_ratio: 1.0
 number_of_epochs: 6
 batch_size: 8 # Used if dynamic_batching is False
-lr: 0.0003
-lr_wav2vec: 0.0001
-lr_scorer: 0.0003
+lr: 0.0002
+lr_wav2vec: 0.00005
+lr_scorer: 0.0002
 warmup_steps_wav2vec: 0
 warmup_steps_asr: 0
 ctc_weight: 0.2

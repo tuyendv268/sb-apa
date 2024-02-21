@@ -19,8 +19,9 @@ data:
 
 gmm:
   conf-path: kaldi/conf
-  kaldi-gmm-mdl-path: kaldi/exp/tri1/40.mdl
-  tree-path: kaldi/exp/tri1/tree
-  phones-path: kaldi/exp/tri1/phones.txt
+  kaldi-gmm-mdl-path: kaldi/exp/tri6b/final.alimdl
+  kaldi-mat-matrix-path: kaldi/exp/tri6b/final.mat
+  tree-path: kaldi/exp/tri6b/tree
+  phones-path: kaldi/exp/tri6b/phones.txt
 
 acoustic-model-path: kaldi/torch/acoustic_model.pt

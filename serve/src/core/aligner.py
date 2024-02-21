@@ -42,6 +42,7 @@ class GMM_Aligner(object):
         
         self.conf_path = configs["gmm"]["conf-path"]
         self.kaldi_gmm_mdl_path = configs["gmm"]["kaldi-gmm-mdl-path"]
+        self.kaldi_final_mat_path = configs["gmm"]["kaldi-mat-matrix-path"]
         self.tree_path = configs["gmm"]["tree-path"]
         self.phones_path = configs["gmm"]["phones-path"]
         
@@ -129,12 +130,19 @@ class GMM_Aligner(object):
         wav_scp_path = f'{data_dir}/wav.scp'
         text_path = f'{data_dir}/text'
         
-        feats_rspecifier = (
-            f"ark:compute-mfcc-feats --config={self.conf_path}/mfcc.conf --allow-downsample=true scp:{wav_scp_path} ark:-"
-            " | apply-cmvn-sliding --cmn-window=10000 --center=true ark:- ark:-"
-            " | add-deltas ark:- ark:- |"
-            )
+        # feats_rspecifier = (
+        #     f"ark:compute-mfcc-feats --config={self.conf_path}/mfcc.conf --allow-downsample=true scp:{wav_scp_path} ark:-"
+        #     " | apply-cmvn-sliding --cmn-window=10000 --center=true ark:- ark:-"
+        #     " | add-deltas ark:- ark:- |"
+        #     )
         
+        feats_rspecifier = (
+            f"ark:compute-mfcc-feats --config={self.conf_path}/mfcc.conf --allow-downsample=true scp:{wav_scp_path} ark:- |"
+            " apply-cmvn-sliding --cmn-window=10000 --center=true ark:- ark:- |"
+            " splice-feats --left-context=3 --right-context=3 ark:- ark:- |"
+            f" transform-feats {self.kaldi_final_mat_path} ark:- ark:- |"
+            )
+                
         id2ali = {}
         with SequentialMatrixReader(feats_rspecifier) as f, open(text_path) as t:
             for (fkey, feats), line in zip(f, t):

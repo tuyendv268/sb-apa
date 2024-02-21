@@ -1,5 +1,5 @@
 from src.utils.aligner import load_config
-from src.interface.aligner import Nnet3_Aligner, GMM_Aligner
+from src.core.aligner import Nnet3_Aligner, GMM_Aligner
 
 from ray.serve.handle import DeploymentHandle
 from starlette.requests import Request
