@@ -5,3 +5,5 @@ pretrained
 results*
 __pycache__
 kaldi
+tmp
+kaldi-2k1-lastest

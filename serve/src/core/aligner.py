@@ -46,10 +46,10 @@ class GMM_Aligner(object):
         self.tree_path = configs["gmm"]["tree-path"]
         self.phones_path = configs["gmm"]["phones-path"]
         
-        self.disam_path = configs['data']['disambig-path']
-        self.word_boundary_path = configs['data']['word-boundary-path']
-        self.lang_graph_path = configs['data']['lang-graph-path']
-        self.words_path = configs['data']['words-path']
+        self.disam_path = configs['gmm']['data']['disambig-path']
+        self.word_boundary_path = configs['gmm']['data']['word-boundary-path']
+        self.lang_graph_path = configs['gmm']['data']['lang-graph-path']
+        self.words_path = configs['gmm']['data']['words-path']
 
         self.init_directories()
         
@@ -130,12 +130,6 @@ class GMM_Aligner(object):
         wav_scp_path = f'{data_dir}/wav.scp'
         text_path = f'{data_dir}/text'
         
-        # feats_rspecifier = (
-        #     f"ark:compute-mfcc-feats --config={self.conf_path}/mfcc.conf --allow-downsample=true scp:{wav_scp_path} ark:-"
-        #     " | apply-cmvn-sliding --cmn-window=10000 --center=true ark:- ark:-"
-        #     " | add-deltas ark:- ark:- |"
-        #     )
-        
         feats_rspecifier = (
             f"ark:compute-mfcc-feats --config={self.conf_path}/mfcc.conf --allow-downsample=true scp:{wav_scp_path} ark:- |"
             " apply-cmvn-sliding --cmn-window=10000 --center=true ark:- ark:- |"
@@ -188,10 +182,10 @@ class Nnet3_Aligner(object):
 
         self.acoustic_model_path = configs['acoustic-model-path']
         
-        self.disam_path = configs['data']['disambig-path']
-        self.word_boundary_path = configs['data']['word-boundary-path']
-        self.lang_graph_path = configs['data']['lang-graph-path']
-        self.words_path = configs['data']['words-path']
+        self.disam_path = configs["nnet3"]['data']['disambig-path']
+        self.word_boundary_path = configs["nnet3"]['data']['word-boundary-path']
+        self.lang_graph_path = configs["nnet3"]['data']['lang-graph-path']
+        self.words_path = configs["nnet3"]['data']['words-path']
         
         self.num_senones = configs["nnet3"]["num_senones"]
         self.conf_path = configs["nnet3"]["conf-path"]

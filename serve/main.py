@@ -65,7 +65,7 @@ class Main:
         return outputs
 
 
-configs = load_config("config.yml")
+configs = load_config("kaldi/config.yml")
 nnet3_app = Nnet3_Forced_Aligner.bind(configs)
 gmm_app = GMM_Forced_Aligner.bind(configs)
 

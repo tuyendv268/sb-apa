@@ -20,7 +20,7 @@ def normalize(text):
     # num_replicas=2, 
     # max_concurrent_queries=64,
     num_replicas=1, 
-    max_concurrent_queries=16,
+    max_concurrent_queries=64,
     # autoscaling_config={
     #     "min_replicas": 1,
     #     "initial_replicas": 2,
@@ -87,6 +87,7 @@ class Nnet3_Forced_Aligner:
             }
         ]
         """
+        print(f'GMM batch_size = {len(batch)}')
         batch = self.preprocess(batch)
         batch = self.model.run(batch)
         output = self.postprocess(batch)
@@ -108,7 +109,7 @@ class Nnet3_Forced_Aligner:
     # num_replicas=2, 
     # max_concurrent_queries=64,
     num_replicas=1, 
-    max_concurrent_queries=16,
+    max_concurrent_queries=64,
     # autoscaling_config={
     #     "min_replicas": 1,
     #     "initial_replicas": 2,
@@ -175,6 +176,7 @@ class GMM_Forced_Aligner:
             }
         ]
         """
+        print(f'GMM batch_size = {len(batch)}')
         batch = self.preprocess(batch)
         batch = self.model.run(batch)
         output = self.postprocess(batch)
@@ -195,11 +197,12 @@ class GMM_Forced_Aligner:
     # num_replicas=2,
     # max_concurrent_queries=128,
     num_replicas=1,
-    max_concurrent_queries=16,
+    max_concurrent_queries=64,
     # health_check_period_s=10,
     # health_check_timeout_s=30,
     # graceful_shutdown_timeout_s=20,
     # graceful_shutdown_wait_loop_s=2,
+    # route_prefix="/align",
     ray_actor_options={
         "num_cpus": 0.05,
         }
